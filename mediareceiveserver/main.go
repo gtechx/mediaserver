@@ -25,10 +25,16 @@ import (
 
 var roomtable map[string]*mediasrv.Room
 var roomid int
+var portid int = 20000
 
 func genID() int {
 	roomid++
 	return roomid
+}
+
+func getPort() int {
+	portid++
+	return portid
 }
 
 func getCmd(w http.ResponseWriter, req *http.Request) {
@@ -44,8 +50,9 @@ func getCmd(w http.ResponseWriter, req *http.Request) {
 	// type
 	//id := req.URL.Query().Get("id")
 	id := strconv.Itoa(genID())
-	room := mediasrv.NewRoom(id)
+	room := mediasrv.NewRoom(id, getPort())
 	roomtable[id] = room
+	room.Start()
 
 	b, _ := json.Marshal(roomtable)
 	retdata := string(b)

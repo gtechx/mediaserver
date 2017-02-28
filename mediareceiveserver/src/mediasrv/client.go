@@ -2,16 +2,17 @@ package mediasrv
 
 import (
 	"fmt"
-	"io"
+	"net"
 )
 
 type client struct {
-	id  string
-	rwc io.ReadWriteCloser
+	ip   string
+	port int
+	conn *net.UDPConn
 }
 
-func newClient(id string) *client {
-	c := client{id: id}
-	fmt.Println("new client ", id)
+func newClient(ip string) *client {
+	c := client{ip: ip}
+	fmt.Println("new client ", ip)
 	return &c
 }
