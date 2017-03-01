@@ -37,9 +37,20 @@ func getPort() int {
 	return portid
 }
 
-func getCmd(w http.ResponseWriter, req *http.Request) {
-	// ip := req.PostFormValue("ip")
-	// port, _ := strconv.Atoi(req.PostFormValue("port"))
+func getCmd(rw http.ResponseWriter, req *http.Request) {
+	fmt.Println(req.URL.String())
+	ip := req.URL.Query().Get("ip")
+	port, _ := strconv.Atoi(req.URL.Query().Get("port"))
+	fmt.Println("http://" + ip + ":" + strconv.Itoa(port) + "/get")
+	resp, err := http.Get("http://" + ip + ":" + strconv.Itoa(port) + "/get")
+	defer resp.Body.Close()
+	if err != nil {
+		// handle error
+		fmt.Println(err.Error())
+		io.WriteString(rw, "{\"error\":\"http error\"}")
+		return
+	}
+	body, err := ioutil.ReadAll(resp.Body)
 	// srvtype, _ := strconv.Atoi(req.PostFormValue("type"))
 	// server := ServerInfo{srvtype, ip, port}
 	// receiveServerArray = append(receiveServerArray, server)
@@ -50,13 +61,13 @@ func getCmd(w http.ResponseWriter, req *http.Request) {
 	// type
 	//id := req.URL.Query().Get("id")
 	id := strconv.Itoa(genID())
-	room := mediasrv.NewRoom(id, getPort())
+	room := mediasrv.NewRoom(id, "192.168.96.124", getPort(), string(body))
 	roomtable[id] = room
 	room.Start()
 
-	b, _ := json.Marshal(roomtable)
+	b, _ := json.Marshal(room)
 	retdata := string(b)
-	io.WriteString(w, retdata)
+	io.WriteString(rw, retdata)
 }
 
 func listCmd(rw http.ResponseWriter, req *http.Request) {
@@ -72,7 +83,7 @@ func listCmd(rw http.ResponseWriter, req *http.Request) {
 func startHTTPServer() {
 	http.HandleFunc("/get", getCmd)
 	http.HandleFunc("/list", listCmd)
-	http.ListenAndServe(":4041", nil)
+	http.ListenAndServe(":4040", nil)
 }
 
 func registerServer() {
@@ -92,15 +103,15 @@ func registerServer() {
 	fmt.Println(string(body))
 }
 
+var c chan int
+
 func main() {
 	roomtable = make(map[string]*mediasrv.Room)
 	go startHTTPServer()
 	go registerServer()
-	go startUDPServer()
+	//go startUDPServer()
 
-	for {
-
-	}
+	_ = <-c
 	//_, err = conn.Write([]byte("HEAD / HTTP/1.0\r\n\r\n"))
 	//_, err = conn.Read(b) / result, err := ioutil.ReadAll(conn)
 }

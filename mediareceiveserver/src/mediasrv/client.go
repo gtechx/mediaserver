@@ -6,13 +6,13 @@ import (
 )
 
 type client struct {
-	ip   string
-	port int
-	conn *net.UDPConn
+	Ip   string       `json:"ip"`
+	Port int          `json:"port"`
+	conn *net.UDPConn `json:"-"`
 }
 
-func newClient(ip string) *client {
-	c := client{ip: ip}
+func newClient(ip string, port int, conn *net.UDPConn) *client {
+	c := client{ip, port, conn}
 	fmt.Println("new client ", ip)
 	return &c
 }

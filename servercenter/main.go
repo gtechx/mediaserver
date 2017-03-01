@@ -70,8 +70,9 @@ func createRoom(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	srvinfo := &receiveServerArray[0]
-	resp, err := http.Get("http://" + srvinfo.Ip + ":" + strconv.Itoa(srvinfo.Port) + "/get")
+	rsrvinfo := &receiveServerArray[0]
+	bsrvinfo := &broadcastServerArray[0]
+	resp, err := http.Get("http://" + rsrvinfo.Ip + ":" + strconv.Itoa(rsrvinfo.Port) + "/get?ip=" + bsrvinfo.Ip + "&port=" + strconv.Itoa(bsrvinfo.Port))
 	defer resp.Body.Close()
 	if err != nil {
 		// handle error
@@ -86,18 +87,18 @@ func createRoom(rw http.ResponseWriter, req *http.Request) {
 	//fmt.Println(string(body))
 	//io.WriteString(rw, string(body))
 
-	srvinfo = &broadcastServerArray[0]
-	resp, err = http.Get("http://" + srvinfo.Ip + ":" + strconv.Itoa(srvinfo.Port) + "/get")
-	defer resp.Body.Close()
-	if err != nil {
-		// handle error
-		fmt.Println(err.Error())
-		io.WriteString(rw, "error")
-		return
-	}
-	body, err = ioutil.ReadAll(resp.Body)
+	// srvinfo = &broadcastServerArray[0]
+	// resp, err = http.Get("http://" + srvinfo.Ip + ":" + strconv.Itoa(srvinfo.Port) + "/get")
+	// defer resp.Body.Close()
+	// if err != nil {
+	// 	// handle error
+	// 	fmt.Println(err.Error())
+	// 	io.WriteString(rw, "error")
+	// 	return
+	// }
+	// body, err = ioutil.ReadAll(resp.Body)
 
-	retdata = retdata + string(body)
+	// retdata = retdata + string(body)
 
 	fmt.Println(retdata)
 	io.WriteString(rw, retdata)
@@ -108,6 +109,18 @@ func startHTTP() {
 	http.HandleFunc("/register", registerServer)
 	http.HandleFunc("/create", createRoom)
 	http.ListenAndServe(":12345", nil)
+}
+
+var c chan int
+
+func main() {
+	c := make(chan int)
+	go startHTTP()
+
+	//go startTCP()
+	//go startUDPCon()
+
+	_ = <-c
 }
 
 func handleConnection(conn *net.TCPConn) {
@@ -135,18 +148,6 @@ func startTCP() {
 		}
 		fmt.Println(conn.RemoteAddr().String() + " connected")
 		go handleConnection(conn)
-	}
-}
-
-func main() {
-
-	go startHTTP()
-
-	//go startTCP()
-	//go startUDPCon()
-
-	for {
-
 	}
 }
 
