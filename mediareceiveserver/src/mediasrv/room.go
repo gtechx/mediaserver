@@ -70,7 +70,7 @@ func (r *Room) startUDPServer() {
 func (r *Room) startUDPRead() {
 	conn := r.conn
 	for {
-		allbuf := make([]byte, 128)
+		allbuf := make([]byte, 2048)
 
 		var datasize int32
 		var uid int64
@@ -99,8 +99,8 @@ func (r *Room) startUDPRead() {
 			r.iclients[uid] = raddr
 		} else {
 			//trans to client servers
-			databuf := make([]byte, datasize)
-			_, raddr, _ := conn.ReadFromUDP(databuf[0:])
+			// databuf := make([]byte, datasize)
+			// _, raddr, _ := conn.ReadFromUDP(databuf[0:])
 			fmt.Println("input client data:" + raddr.String())
 			// allbuf := make([]byte, 0)
 			// allbuf = append(allbuf, buf...)
@@ -110,13 +110,16 @@ func (r *Room) startUDPRead() {
 			// allbuf := make([]byte, len(buf)+len(uidbuf)+len(btype)+datasize)
 			// copy(allbuf,)
 			// append(allbuf, buf, uidbuf, databuf,...)
-			go r.doUDPWrite(allbuf)
+			go r.doUDPWrite(allbuf[0:13+datasize], uid)
 		}
 	}
 }
 
-func (r *Room) doUDPWrite(buf []byte) {
-	for _, value := range r.Clients {
+func (r *Room) doUDPWrite(buf []byte, int64 uid) {
+	for id, value := range r.Clients {
+		if id == uid {
+			continue
+		}
 		_, err := value.conn.Write(buf)
 		if err != nil {
 			fmt.Println("err doUDPWrite:" + err.Error())

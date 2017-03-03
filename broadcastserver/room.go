@@ -47,7 +47,7 @@ func (r *Room) startUDPRead() {
 	conn := r.conn
 	//reader := bufio.NewReader(conn)
 	for {
-		allbuf := make([]byte, 128)
+		allbuf := make([]byte, 2048)
 
 		var datasize int32
 		var uid int64
@@ -88,7 +88,7 @@ func (r *Room) startUDPRead() {
 			// allbuf = append(allbuf, btype...)
 			// allbuf = append(allbuf, databuf...)
 			fmt.Println("parent data:" + raddr.String())
-			go r.doUDPWrite(allbuf)
+			go r.doUDPWrite(allbuf[0 : 13+datasize])
 		}
 	}
 }
