@@ -1,0 +1,91 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingBottom="@dimen/activity_vertical_margin"
+    android:paddingLeft="@dimen/activity_horizontal_margin"
+    android:paddingRight="@dimen/activity_horizontal_margin"
+    android:paddingTop="@dimen/activity_vertical_margin"
+    tools:context="com.example.testudpclient.MainActivity" >
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:gravity="center_vertical|center_horizontal"
+        android:orientation="vertical" >
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|center_vertical" >
+
+            <TextView
+                android:id="@+id/tv_ip"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="ip:" />
+
+            <EditText
+                android:id="@+id/txt_ip"
+                android:layout_width="200dp"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:text="192.168.96.124" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|center_vertical" >
+
+            <TextView
+                android:id="@+id/tv_uid"
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="uid:" />
+
+	        <EditText
+	            android:id="@+id/txt_uid"
+	            android:layout_width="200dp"
+	            android:layout_height="wrap_content"
+	            android:ems="10"
+	            android:text="2020" >
+	
+	            <requestFocus />
+	        </EditText>
+
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_joininput"
+            android:layout_width="210dp"
+            android:layout_marginTop="10dp"
+            android:layout_height="wrap_content"
+            android:text="join room as input" />
+        <Button
+            android:id="@+id/btn_quitinput"
+            android:layout_width="210dp"
+            android:layout_marginTop="10dp"
+            android:layout_height="wrap_content"
+            android:text="quit input room" />
+
+        <Button
+            android:id="@+id/btn_joinlistener"
+            android:layout_width="210dp"
+            android:layout_marginTop="10dp"
+            android:layout_height="wrap_content"
+            android:text="join room as listener" />
+
+        <Button
+            android:id="@+id/btn_quitlistener"
+            android:layout_width="210dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="quit listener room" />
+
+    </LinearLayout>
+
+</RelativeLayout>
