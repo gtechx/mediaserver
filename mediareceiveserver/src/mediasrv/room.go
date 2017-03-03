@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 )
 
 type Room struct {
@@ -101,7 +102,7 @@ func (r *Room) startUDPRead() {
 			//trans to client servers
 			// databuf := make([]byte, datasize)
 			// _, raddr, _ := conn.ReadFromUDP(databuf[0:])
-			fmt.Println("input client data:" + raddr.String())
+			fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "input client data:" + raddr.String())
 			// allbuf := make([]byte, 0)
 			// allbuf = append(allbuf, buf...)
 			// allbuf = append(allbuf, uidbuf...)

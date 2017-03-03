@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 )
 
 type Room struct {
@@ -87,7 +88,7 @@ func (r *Room) startUDPRead() {
 			// allbuf = append(allbuf, uidbuf...)
 			// allbuf = append(allbuf, btype...)
 			// allbuf = append(allbuf, databuf...)
-			fmt.Println("parent data:" + raddr.String())
+			fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "parent data:" + raddr.String())
 			sendbuf := make([]byte, 0)
 			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
 			go r.doUDPWrite(sendbuf, uid)
