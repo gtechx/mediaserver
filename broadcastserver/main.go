@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,8 +16,21 @@ var roomid int
 var portid int = 30000
 var c chan int
 
+var sip string
+var sport int
+
 func main() {
+	c := make(chan int)
 	roomtable = make(map[string]*Room)
+
+	pip := flag.String("ip", "192.168.96.124", "ip address")
+	pport := flag.Int("port", 20001, "port")
+	flag.Parse()
+	sip = *pip
+	sport = *pport
+	fmt.Println("ip:", sip)
+	fmt.Println("port:", sport)
+
 	go startHTTPServer()
 	go registerServer()
 
@@ -24,8 +38,8 @@ func main() {
 }
 
 func registerServer() {
-	resp, err := http.PostForm("http://192.168.96.124:12345/register",
-		url.Values{"ip": {"192.168.96.124"}, "port": {"3030"}, "type": {"1"}})
+	resp, err := http.PostForm("http://"+sip+":12345/register",
+		url.Values{"ip": {sip}, "port": {"3030"}, "type": {"1"}})
 
 	if err != nil {
 		// handle error
@@ -66,7 +80,7 @@ func getPort() int {
 
 func getCmd(rw http.ResponseWriter, req *http.Request) {
 	id := strconv.Itoa(genID())
-	room := NewRoom(id, "192.168.96.124", getPort())
+	room := NewRoom(id, sip, getPort())
 	roomtable[id] = room
 	room.Start()
 

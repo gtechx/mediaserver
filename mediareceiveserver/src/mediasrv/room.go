@@ -110,16 +110,15 @@ func (r *Room) startUDPRead() {
 			// allbuf := make([]byte, len(buf)+len(uidbuf)+len(btype)+datasize)
 			// copy(allbuf,)
 			// append(allbuf, buf, uidbuf, databuf,...)
-			go r.doUDPWrite(allbuf[0:13+datasize], uid)
+			sendbuf := make([]byte, 0)
+			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
+			go r.doUDPWrite(sendbuf)
 		}
 	}
 }
 
-func (r *Room) doUDPWrite(buf []byte, int64 uid) {
-	for id, value := range r.Clients {
-		if id == uid {
-			continue
-		}
+func (r *Room) doUDPWrite(buf []byte) {
+	for _, value := range r.Clients {
 		_, err := value.conn.Write(buf)
 		if err != nil {
 			fmt.Println("err doUDPWrite:" + err.Error())

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -18,6 +19,9 @@ type ServerInfo struct {
 
 var receiveServerArray []ServerInfo
 var broadcastServerArray []ServerInfo
+
+var sip string
+var sport int
 
 // hello world, the web server
 func listServer(w http.ResponseWriter, req *http.Request) {
@@ -115,6 +119,13 @@ var c chan int
 
 func main() {
 	c := make(chan int)
+	pip := flag.String("ip", "192.168.96.124", "ip address")
+	pport := flag.Int("port", 20001, "port")
+	flag.Parse()
+	sip = *pip
+	sport = *pport
+	fmt.Println("ip:", sip)
+	fmt.Println("port:", sport)
 	go startHTTP()
 
 	//go startTCP()
