@@ -4,11 +4,15 @@ import (
 	//"encoding/json"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
+	"strconv"
 	"time"
 	//"net/http"
 )
@@ -44,41 +48,89 @@ func main() {
 	_ = <-c
 }
 
+type loginInfo struct {
+	SessionId string `json:"uid"`
+	ErrorCode int    `json:"errorcode"`
+	Error     string `json:"error"`
+}
+
+var info loginInfo
+
+type client struct {
+	Ip   string `json:"ip"`
+	Port int    `json:"port"`
+}
+type roomInfo struct {
+	Id        string             `json:"id"`
+	Ip        string             `json:"ip"`
+	Port      int                `json:"port"`
+	Clients   map[string]*client `json:"subroom"`
+	ErrorCode int                `json:"errorcode"`
+	Error     string             `json:"error"`
+}
+
+var loginedroom roomInfo
+
 func startUDPCon() {
-	// resp, err := http.Get("http://192.168.96.124:12345/create")
-	// defer resp.Body.Close()
-	// if err != nil {
-	// 	// handle error
-	// 	fmt.Println(err.Error())
-	// 	io.WriteString(rw, "{\"error\":\"http error\"}")
-	// 	return
-	// }
-	// body, err := ioutil.ReadAll(resp.Body)
-
-	// var rinfo roomInfo
-	// json.Unmarshal(body, &rinfo)
-
-	// b, _ := json.Marshal(rinfo)
-	// fmt.Println("room info:" + string(b))
-
-	//conn, err := net.Dial("udp", "127.0.0.1:4040")
-	udpAddr, err := net.ResolveUDPAddr("udp", sip+":20001")
-
-	//udp连接
-	conn, err := net.DialUDP("udp", nil, udpAddr)
-	//defer conn.Close()
+	fmt.Println("logining..." + "http://" + sip + ":12345/login?useraccount=1001")
+	resp, err := http.Get("http://" + sip + ":12345/login?useraccount=1001")
+	defer resp.Body.Close()
 	if err != nil {
-		fmt.Println(err)
+		// handle error
+		fmt.Println(err.Error())
+		//io.WriteString(rw, "{\"error\":\"http error\"}")
 		return
 	}
+	body, err := ioutil.ReadAll(resp.Body)
 
-	buf := make([]byte, 13)
-	buf[12] = 0
-	conn.Write(buf)
-	//conn.Write([]byte("Hello world!"))
+	fmt.Println(string(body))
+	info.ErrorCode = -1
+	// var rinfo roomInfo
+	json.Unmarshal(body, &info)
 
-	go processUDPRead(conn)
-	go processUDPWrite(conn)
+	// b, _ := json.Marshal(rinfo)
+	fmt.Println(info)
+
+	if info.ErrorCode == -1 {
+		//create room
+		fmt.Println("creating room...")
+		resp, err = http.Get("http://" + sip + ":12345/create?sessionid=" + info.SessionId)
+		defer resp.Body.Close()
+		if err != nil {
+			// handle error
+			fmt.Println(err.Error())
+			//io.WriteString(rw, "{\"error\":\"http error\"}")
+			return
+		}
+		body, err = ioutil.ReadAll(resp.Body)
+
+		loginedroom.ErrorCode = -1
+		json.Unmarshal(body, &loginedroom)
+
+		if loginedroom.ErrorCode == -1 {
+			//conn, err := net.Dial("udp", "127.0.0.1:4040")
+			fmt.Println("create room success")
+			udpAddr, err := net.ResolveUDPAddr("udp", loginedroom.Ip+":"+strconv.Itoa(loginedroom.Port))
+
+			//udp连接
+			conn, err := net.DialUDP("udp", nil, udpAddr)
+			//defer conn.Close()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+
+			buf := make([]byte, 4)
+			buf = append(buf, []byte(info.SessionId)...)
+			buf = append(buf, []byte{0}...)
+			fmt.Println(buf)
+			conn.Write(buf)
+			//conn.Write([]byte("Hello world!"))
+
+			//go processUDPRead(conn)
+			go processUDPWrite(conn)
+		}
+	}
 }
 
 func processUDPRead(conn *net.UDPConn) {

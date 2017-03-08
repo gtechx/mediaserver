@@ -94,13 +94,12 @@ func (r *Room) startUDPRead() {
 
 		b_buf := bytes.NewBuffer(buf)
 		binary.Read(b_buf, binary.LittleEndian, &datasize)
-		fmt.Println("data size is ", datasize)
 
 		uid = string(uidbuf)
 		// b_buf = bytes.NewBuffer(uidbuf)
 		// binary.Read(b_buf, binary.LittleEndian, &uid)
 		// fmt.Println("uid is ", uid)
-
+		fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
 		if btype[0] == 0 {
 			//input client
 			//fmt.Println("input client connected:" + raddr.String())
@@ -108,7 +107,8 @@ func (r *Room) startUDPRead() {
 			fmt.Println("user client logining:" + raddr.String())
 			r.loginMaps[uid] = raddr
 			go r.doCheckLogin(uid, raddr)
-		} else {
+		} else if _, ok := r.iclients[uid]; ok {
+			fmt.Println("data size is ", datasize)
 			//trans to client servers
 			// databuf := make([]byte, datasize)
 			// _, raddr, _ := conn.ReadFromUDP(databuf[0:])
@@ -124,6 +124,8 @@ func (r *Room) startUDPRead() {
 			sendbuf := make([]byte, 0)
 			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
 			go r.doUDPWrite(sendbuf)
+		} else {
+			//fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
 		}
 	}
 }

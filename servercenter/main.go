@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/md5"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http"
 	"strconv"
@@ -187,7 +189,7 @@ func createRoom(rw http.ResponseWriter, req *http.Request) {
 
 	var croom room
 	json.Unmarshal(body, &croom)
-	fmt.Println(croom)
+	//fmt.Println(croom)
 	newroom := roominfo{roomtype, haspassword, password, ispublic, &croom, sessionid}
 
 	if ispublic == 1 {
@@ -279,6 +281,12 @@ func checkLogin(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func Md5(text string) string {
+	hashMd5 := md5.New()
+	io.WriteString(hashMd5, text)
+	return fmt.Sprintf("%x", hashMd5.Sum(nil))
+}
+
 func userLogin(rw http.ResponseWriter, req *http.Request) {
 	useraccount := req.URL.Query().Get("useraccount")
 	userpassword := req.URL.Query().Get("userpassword")
@@ -288,11 +296,19 @@ func userLogin(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sessionid := strconv.FormatInt(time.Now().UnixNano(), 10)
+	//sessionid := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	nano := time.Now().UnixNano()
+	rand.Seed(nano)
+	rndNum := rand.Int63()
+	sessionid := Md5(Md5(strconv.FormatInt(nano, 10)) + Md5(strconv.FormatInt(rndNum, 10)))
+	sessionid = sessionid + sessionid
+
 	accinfo := userInfo{useraccount, userpassword}
 	sessionIdMaps[sessionid] = &accinfo
+	fmt.Println("user:" + useraccount + " logined")
 
-	io.WriteString(rw, "{\"uid\":"+sessionid+"}")
+	io.WriteString(rw, "{\"uid\":\""+sessionid+"\"}")
 }
 
 func startHTTP() {
@@ -308,6 +324,7 @@ func startHTTP() {
 var c chan int
 
 func main() {
+	sessionIdMaps = make(map[string]*userInfo)
 	roomMaps = make(map[string]*roominfo)
 	c := make(chan int)
 	pip := flag.String("ip", "192.168.96.124", "ip address")

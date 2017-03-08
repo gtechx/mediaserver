@@ -4,6 +4,7 @@ import (
 	//"encoding/json"
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"net"
 	//"net/http"
@@ -22,8 +23,20 @@ import (
 // }
 
 var c chan int
+var sip string
+var sport int
 
 func main() {
+	c := make(chan int)
+
+	pip := flag.String("ip", "192.168.96.124", "ip address")
+	pport := flag.Int("port", 20001, "port")
+	flag.Parse()
+	sip = *pip
+	sport = *pport
+	fmt.Println("ip:", sip)
+	fmt.Println("port:", sport)
+
 	go startUDPCon()
 	_ = <-c
 }
@@ -46,7 +59,7 @@ func startUDPCon() {
 	// fmt.Println("room info:" + string(b))
 
 	//conn, err := net.Dial("udp", "127.0.0.1:4040")
-	udpAddr, err := net.ResolveUDPAddr("udp", "192.168.96.124:30001")
+	udpAddr, err := net.ResolveUDPAddr("udp", sip+":30001")
 
 	//udp连接
 	conn, err := net.DialUDP("udp", nil, udpAddr)
