@@ -4,24 +4,30 @@ import (
 	//"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"strconv"
 	"time"
 )
 
 type Room struct {
-	Id      string                 `json:"id"`
-	Ip      string                 `json:"ip"`
-	Port    int                    `json:"port"`
-	conn    *net.UDPConn           `json:"-"`
-	parent  *net.UDPAddr           `json:"-"`
-	clients map[int64]*net.UDPAddr `json:"-"`
+	Id        string                  `json:"id"`
+	Ip        string                  `json:"ip"`
+	Port      int                     `json:"port"`
+	conn      *net.UDPConn            `json:"-"`
+	parent    *net.UDPAddr            `json:"-"`
+	clients   map[string]*net.UDPAddr `json:"-"`
+	loginMaps map[string]*net.UDPAddr `json:"-"`
+	scip      string                  `json:"-"`
+	scport    int                     `json:"-"`
 }
 
-func NewRoom(id string, ip string, portid int) *Room {
+func NewRoom(id string, ip string, portid int, scip string, scport int) *Room {
 	fmt.Println("new room ", id)
-	return &Room{id, ip, portid, nil, nil, make(map[int64]*net.UDPAddr)}
+	return &Room{id, ip, portid, nil, nil, make(map[string]*net.UDPAddr), make(map[string]*net.UDPAddr), scip, scport}
 }
 
 func (r *Room) Start() {
@@ -51,7 +57,7 @@ func (r *Room) startUDPRead() {
 		allbuf := make([]byte, 2048)
 
 		var datasize int32
-		var uid int64
+		var uid string
 
 		_, raddr, err := conn.ReadFromUDP(allbuf[0:])
 		if err != nil {
@@ -67,14 +73,16 @@ func (r *Room) startUDPRead() {
 		binary.Read(b_buf, binary.LittleEndian, &datasize)
 		fmt.Println("data size is ", datasize)
 
-		b_buf = bytes.NewBuffer(uidbuf)
-		binary.Read(b_buf, binary.LittleEndian, &uid)
-		fmt.Println("uid is ", uid)
+		uid = string(uidbuf)
+		// b_buf = bytes.NewBuffer(uidbuf)
+		// binary.Read(b_buf, binary.LittleEndian, &uid)
+		// fmt.Println("uid is ", uid)
 
 		if btype[0] == 0 {
 			//user client
-			fmt.Println("user client connected:" + raddr.String())
-			r.clients[uid] = raddr
+			fmt.Println("user client logining:" + raddr.String())
+			r.loginMaps[uid] = raddr
+			go r.doCheckLogin(uid, raddr)
 		} else if btype[0] == 1 {
 			//parent udp server connect
 			fmt.Println("parent connect:" + raddr.String())
@@ -96,7 +104,7 @@ func (r *Room) startUDPRead() {
 	}
 }
 
-func (r *Room) doUDPWrite(buf []byte, uid int64) {
+func (r *Room) doUDPWrite(buf []byte, uid string) {
 	for id, udpaddr := range r.clients {
 		if id == uid {
 			continue
@@ -106,4 +114,65 @@ func (r *Room) doUDPWrite(buf []byte, uid int64) {
 			fmt.Println("err doUDPWrite:" + err.Error())
 		}
 	}
+}
+
+type loginCBInfo struct {
+	Ok        string
+	ErrorCode int
+	Error     string
+}
+
+func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
+	resp, err := http.Get("http://" + r.scip + ":" + strconv.Itoa(r.scport) + "/checklogin?srvtype=bs&id=" + r.Id + "&sessionid=" + uid)
+
+	if err != nil {
+		// handle error
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		// handle error
+	}
+
+	var info loginCBInfo
+	info.ErrorCode = -1
+	json.Unmarshal(body, &info)
+
+	var datasize int32
+	var dtype byte
+
+	datasize = int32(0)
+
+	bytesBuffer := bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer, binary.LittleEndian, datasize)
+	sendbuf := bytesBuffer.Bytes()
+
+	sendbuf = append(sendbuf, []byte(uid)...)
+
+	if info.ErrorCode == -1 {
+		fmt.Println("user client logined:" + raddr.String())
+
+		if _, ok := r.loginMaps[uid]; ok {
+			r.clients[uid] = r.loginMaps[uid]
+		}
+		dtype = 200
+
+	} else {
+		fmt.Println("user client login failed:" + raddr.String())
+		dtype = 201
+	}
+
+	bytesBuffer = bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer, binary.LittleEndian, dtype)
+	sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
+
+	_, err = r.conn.WriteToUDP(sendbuf, raddr)
+	if err != nil {
+		fmt.Println("err doCheckLogin:" + err.Error())
+	}
+
+	delete(r.loginMaps, uid)
+
+	fmt.Println(string(body))
 }
