@@ -19,7 +19,7 @@ type Room struct {
 	Port      int                     `json:"port"`
 	conn      *net.UDPConn            `json:"-"`
 	iclients  map[string]*net.UDPAddr `json:"-"`
-	Clients   map[string]*client      `json:"subroom"`
+	Clients   []*client               `json:"subroom"`
 	loginMaps map[string]*net.UDPAddr `json:"-"`
 	scip      string                  `json:"-"`
 	scport    int                     `json:"-"`
@@ -34,7 +34,7 @@ type clientroom struct {
 func NewRoom(id string, ip string, port int, clientdata string, scip string, scport int) *Room {
 	fmt.Println("new room ", id)
 	fmt.Println(clientdata)
-	cmap := make(map[string]*client)
+	cclients := make([]*client, 0)
 	var croom clientroom
 	json.Unmarshal([]byte(clientdata), &croom)
 
@@ -51,9 +51,9 @@ func NewRoom(id string, ip string, port int, clientdata string, scip string, scp
 	buf[12] = 1
 	conn.Write(buf)
 
-	cmap[croom.Id] = newClient(croom.Ip, croom.Port, conn)
+	cclients = append(cclients, newClient(croom.Ip, croom.Port, conn))
 
-	return &Room{id, ip, port, nil, make(map[string]*net.UDPAddr), cmap, make(map[string]*net.UDPAddr), scip, scport}
+	return &Room{id, ip, port, nil, make(map[string]*net.UDPAddr), cclients, make(map[string]*net.UDPAddr), scip, scport}
 }
 
 func (r *Room) Start() {
@@ -80,7 +80,8 @@ func (r *Room) startUDPRead() {
 		allbuf := make([]byte, 2048)
 
 		var datasize int32
-		var uid string
+		var uid int64
+		var struid string
 
 		_, raddr, err := conn.ReadFromUDP(allbuf[0:])
 		if err != nil {
@@ -95,19 +96,21 @@ func (r *Room) startUDPRead() {
 		b_buf := bytes.NewBuffer(buf)
 		binary.Read(b_buf, binary.LittleEndian, &datasize)
 
-		uid = string(uidbuf)
-		// b_buf = bytes.NewBuffer(uidbuf)
-		// binary.Read(b_buf, binary.LittleEndian, &uid)
-		// fmt.Println("uid is ", uid)
-		fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
+		//uid = string(uidbuf)
+		b_buf = bytes.NewBuffer(uidbuf)
+		binary.Read(b_buf, binary.LittleEndian, &uid)
+		fmt.Println("uid is ", uid)
+		struid = strconv.FormatInt(uid, 10)
+		//fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
 		if btype[0] == 0 {
+			fmt.Println("uid is ", uid)
 			//input client
 			//fmt.Println("input client connected:" + raddr.String())
 			//r.iclients[uid] = raddr
 			fmt.Println("user client logining:" + raddr.String())
-			r.loginMaps[uid] = raddr
-			go r.doCheckLogin(uid, raddr)
-		} else if _, ok := r.iclients[uid]; ok {
+			r.loginMaps[struid] = raddr
+			go r.doCheckLogin(struid, raddr)
+		} else if _, ok := r.iclients[struid]; ok {
 			fmt.Println("data size is ", datasize)
 			//trans to client servers
 			// databuf := make([]byte, datasize)
@@ -125,7 +128,7 @@ func (r *Room) startUDPRead() {
 			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
 			go r.doUDPWrite(sendbuf)
 		} else {
-			//fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
+			fmt.Println("unlogined user try to send data:")
 		}
 	}
 }
@@ -145,8 +148,8 @@ type loginCBInfo struct {
 	Error     string
 }
 
-func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
-	resp, err := http.Get("http://" + r.scip + ":" + strconv.Itoa(r.scport) + "/checklogin?srvtype=bs&id=" + r.Id + "&sessionid=" + uid)
+func (r *Room) doCheckLogin(struid string, raddr *net.UDPAddr) {
+	resp, err := http.Get("http://" + r.scip + ":" + strconv.Itoa(r.scport) + "/checklogin?srvtype=rs&id=" + r.Id + "&sessionid=" + struid)
 
 	if err != nil {
 		// handle error
@@ -162,22 +165,24 @@ func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
 	info.ErrorCode = -1
 	json.Unmarshal(body, &info)
 
-	var datasize int32
 	var dtype byte
-
-	datasize = int32(0)
+	var datasize = int32(0)
+	uid, _ := strconv.ParseInt(struid, 10, 64)
 
 	bytesBuffer := bytes.NewBuffer([]byte{})
 	binary.Write(bytesBuffer, binary.LittleEndian, datasize)
 	sendbuf := bytesBuffer.Bytes()
 
-	sendbuf = append(sendbuf, []byte(uid)...)
+	bytesBuffer = bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer, binary.LittleEndian, uid)
+	sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
 
 	if info.ErrorCode == -1 {
 		fmt.Println("user client logined:" + raddr.String())
 
-		if _, ok := r.loginMaps[uid]; ok {
-			r.iclients[uid] = r.loginMaps[uid]
+		if _, ok := r.loginMaps[struid]; ok {
+			fmt.Println("add user client to iclient map..")
+			r.iclients[struid] = r.loginMaps[struid]
 		}
 		dtype = 200
 
@@ -195,7 +200,7 @@ func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
 		fmt.Println("err doCheckLogin:" + err.Error())
 	}
 
-	delete(r.loginMaps, uid)
+	delete(r.loginMaps, struid)
 
 	fmt.Println(string(body))
 }

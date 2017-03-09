@@ -49,7 +49,7 @@ func main() {
 }
 
 type loginInfo struct {
-	SessionId string `json:"uid"`
+	SessionId int64  `json:"uid"`
 	ErrorCode int    `json:"errorcode"`
 	Error     string `json:"error"`
 }
@@ -61,12 +61,12 @@ type client struct {
 	Port int    `json:"port"`
 }
 type roomInfo struct {
-	Id        string             `json:"id"`
-	Ip        string             `json:"ip"`
-	Port      int                `json:"port"`
-	Clients   map[string]*client `json:"subroom"`
-	ErrorCode int                `json:"errorcode"`
-	Error     string             `json:"error"`
+	Id        string    `json:"id"`
+	Ip        string    `json:"ip"`
+	Port      int       `json:"port"`
+	Clients   []*client `json:"subroom"`
+	ErrorCode int       `json:"errorcode"`
+	Error     string    `json:"error"`
 }
 
 var loginedroom roomInfo
@@ -94,7 +94,7 @@ func startUDPCon() {
 	if info.ErrorCode == -1 {
 		//create room
 		fmt.Println("creating room...")
-		resp, err = http.Get("http://" + sip + ":12345/create?sessionid=" + info.SessionId)
+		resp, err = http.Get("http://" + sip + ":12345/create?sessionid=" + strconv.FormatInt(info.SessionId, 10))
 		defer resp.Body.Close()
 		if err != nil {
 			// handle error
@@ -121,19 +121,23 @@ func startUDPCon() {
 			}
 
 			buf := make([]byte, 4)
-			buf = append(buf, []byte(info.SessionId)...)
+
+			bytesBuffer := bytes.NewBuffer([]byte{})
+			binary.Write(bytesBuffer, binary.LittleEndian, info.SessionId)
+			buf = append(buf, bytesBuffer.Bytes()...)
+
 			buf = append(buf, []byte{0}...)
 			fmt.Println(buf)
 			conn.Write(buf)
 			//conn.Write([]byte("Hello world!"))
 
 			//go processUDPRead(conn)
-			go processUDPWrite(conn)
+			go processUDPRead(conn)
 		}
 	}
 }
 
-func processUDPRead(conn *net.UDPConn) {
+func processUDPWrite(conn *net.UDPConn) {
 	//var content string
 	f, err := os.Open("male.wav")
 	if err != nil {
@@ -166,10 +170,10 @@ func processUDPRead(conn *net.UDPConn) {
 				return
 			}
 			var datasize int32
-			var uid int64
+			//var uid int64
 			var dtype byte
 
-			uid = 1012
+			//uid = 1012
 			dtype = 2
 			datasize = int32(num)
 
@@ -178,7 +182,7 @@ func processUDPRead(conn *net.UDPConn) {
 			sendbuf := bytesBuffer.Bytes()
 
 			bytesBuffer = bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, uid)
+			binary.Write(bytesBuffer, binary.LittleEndian, info.SessionId)
 			sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
 
 			bytesBuffer = bytes.NewBuffer([]byte{})
@@ -194,10 +198,38 @@ func processUDPRead(conn *net.UDPConn) {
 	f.Close()
 }
 
-func processUDPWrite(conn *net.UDPConn) {
+func processUDPRead(conn *net.UDPConn) {
 	for {
-		var msg [2048]byte
-		conn.ReadFromUDP(msg[0:])
-		fmt.Println("recv msg is ", string(msg[0:]))
+		allbuf := make([]byte, 2048)
+
+		var datasize int32
+		var uid int64
+
+		_, err := conn.Read(allbuf[0:])
+		if err != nil {
+			fmt.Println("err:" + err.Error())
+			continue
+		}
+
+		dsizebuf := allbuf[0:4]
+		uidbuf := allbuf[4:12]
+		btype := allbuf[12:13]
+
+		b_buf := bytes.NewBuffer(dsizebuf)
+		binary.Read(b_buf, binary.LittleEndian, &datasize)
+		fmt.Println("data size is ", datasize)
+
+		b_buf = bytes.NewBuffer(uidbuf)
+		binary.Read(b_buf, binary.LittleEndian, &uid)
+		fmt.Println("uid is ", uid)
+
+		fmt.Println("type is ", btype[0])
+
+		if btype[0] == 200 {
+			fmt.Println("connect rs server ok, start sending data...")
+			go processUDPWrite(conn)
+		} else {
+			fmt.Println("connect rs server failed")
+		}
 	}
 }

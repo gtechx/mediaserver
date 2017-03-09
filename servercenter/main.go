@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net"
 	"net/http"
 	"strconv"
@@ -26,7 +25,7 @@ type room struct {
 	Port     int                    `json:"port"`
 	conn     *net.UDPConn           `json:"-"`
 	iclients map[int64]*net.UDPAddr `json:"-"`
-	Clients  map[string]*client     `json:"subroom"`
+	Clients  []*client              `json:"subroom"`
 }
 
 type roominfo struct {
@@ -73,7 +72,7 @@ func checkAccountAndPassword(account string, password string) bool {
 	intaccount, _ := strconv.Atoi(account)
 	//intpassword, _ := strconv.Atoi(password)
 
-	if intaccount > 1000 && intaccount < 10000 {
+	if intaccount >= 1000 && intaccount <= 10000 {
 		return true
 	}
 
@@ -110,10 +109,12 @@ func listRooms(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	fmt.Println("sessionid:" + sessionid + "req listrooms...")
 	if len(publicRooms) > 0 {
 		b, _ := json.Marshal(publicRooms)
 		io.WriteString(rw, string(b))
 	} else {
+		fmt.Println("no rooms")
 		io.WriteString(rw, "{\"errorcode\":3, \"error\":\"no rooms\"}")
 	}
 }
@@ -296,19 +297,20 @@ func userLogin(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	//sessionid := strconv.FormatInt(time.Now().UnixNano(), 10)
+	intacc, _ := strconv.Atoi(useraccount)
+	sessionid := strconv.FormatInt(time.Now().UnixNano()+int64(intacc), 10)
 
-	nano := time.Now().UnixNano()
-	rand.Seed(nano)
-	rndNum := rand.Int63()
-	sessionid := Md5(Md5(strconv.FormatInt(nano, 10)) + Md5(strconv.FormatInt(rndNum, 10)))
-	sessionid = sessionid + sessionid
+	// nano := time.Now().UnixNano()
+	// rand.Seed(nano)
+	// rndNum := rand.Int63()
+	// sessionid := Md5(Md5(strconv.FormatInt(nano, 10)) + Md5(strconv.FormatInt(rndNum, 10)))
+	// sessionid = sessionid + sessionid
 
 	accinfo := userInfo{useraccount, userpassword}
 	sessionIdMaps[sessionid] = &accinfo
 	fmt.Println("user:" + useraccount + " logined")
 
-	io.WriteString(rw, "{\"uid\":\""+sessionid+"\"}")
+	io.WriteString(rw, "{\"uid\":"+sessionid+"}")
 }
 
 func startHTTP() {

@@ -57,7 +57,8 @@ func (r *Room) startUDPRead() {
 		allbuf := make([]byte, 2048)
 
 		var datasize int32
-		var uid string
+		var uid int64
+		var struid string
 
 		_, raddr, err := conn.ReadFromUDP(allbuf[0:])
 		if err != nil {
@@ -73,16 +74,16 @@ func (r *Room) startUDPRead() {
 		binary.Read(b_buf, binary.LittleEndian, &datasize)
 		fmt.Println("data size is ", datasize)
 
-		uid = string(uidbuf)
-		// b_buf = bytes.NewBuffer(uidbuf)
-		// binary.Read(b_buf, binary.LittleEndian, &uid)
-		// fmt.Println("uid is ", uid)
+		b_buf = bytes.NewBuffer(uidbuf)
+		binary.Read(b_buf, binary.LittleEndian, &uid)
+		fmt.Println("uid is ", uid)
+		struid = strconv.FormatInt(uid, 10)
 
 		if btype[0] == 0 {
 			//user client
 			fmt.Println("user client logining:" + raddr.String())
-			r.loginMaps[uid] = raddr
-			go r.doCheckLogin(uid, raddr)
+			r.loginMaps[struid] = raddr
+			go r.doCheckLogin(struid, raddr)
 		} else if btype[0] == 1 {
 			//parent udp server connect
 			fmt.Println("parent connect:" + raddr.String())
@@ -99,7 +100,7 @@ func (r *Room) startUDPRead() {
 			fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "parent data:" + raddr.String())
 			sendbuf := make([]byte, 0)
 			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
-			go r.doUDPWrite(sendbuf, uid)
+			go r.doUDPWrite(sendbuf, struid)
 		}
 	}
 }
@@ -107,13 +108,16 @@ func (r *Room) startUDPRead() {
 func (r *Room) doUDPWrite(buf []byte, uid string) {
 	for id, udpaddr := range r.clients {
 		if id == uid {
+			//fmt.Println("uid:" + uid + " skiped")
 			continue
 		}
+		//fmt.Println("sending data to uid:" + uid)
 		_, err := r.conn.WriteToUDP(buf, udpaddr)
 		if err != nil {
 			fmt.Println("err doUDPWrite:" + err.Error())
 		}
 	}
+	//fmt.Println("len of r.clients:", len(r.clients))
 }
 
 type loginCBInfo struct {
@@ -122,8 +126,8 @@ type loginCBInfo struct {
 	Error     string
 }
 
-func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
-	resp, err := http.Get("http://" + r.scip + ":" + strconv.Itoa(r.scport) + "/checklogin?srvtype=bs&id=" + r.Id + "&sessionid=" + uid)
+func (r *Room) doCheckLogin(struid string, raddr *net.UDPAddr) {
+	resp, err := http.Get("http://" + r.scip + ":" + strconv.Itoa(r.scport) + "/checklogin?srvtype=bs&id=" + r.Id + "&sessionid=" + struid)
 
 	if err != nil {
 		// handle error
@@ -139,22 +143,25 @@ func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
 	info.ErrorCode = -1
 	json.Unmarshal(body, &info)
 
-	var datasize int32
 	var dtype byte
-
-	datasize = int32(0)
+	var datasize = int32(0)
+	uid, _ := strconv.ParseInt(struid, 10, 64)
 
 	bytesBuffer := bytes.NewBuffer([]byte{})
 	binary.Write(bytesBuffer, binary.LittleEndian, datasize)
 	sendbuf := bytesBuffer.Bytes()
 
-	sendbuf = append(sendbuf, []byte(uid)...)
+	bytesBuffer = bytes.NewBuffer([]byte{})
+	binary.Write(bytesBuffer, binary.LittleEndian, uid)
+	sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
 
 	if info.ErrorCode == -1 {
 		fmt.Println("user client logined:" + raddr.String())
 
-		if _, ok := r.loginMaps[uid]; ok {
-			r.clients[uid] = r.loginMaps[uid]
+		if _, ok := r.loginMaps[struid]; ok {
+			fmt.Println("add user client to client map..")
+			r.clients[struid] = r.loginMaps[struid]
+			fmt.Println("len of r.clients:", len(r.clients))
 		}
 		dtype = 200
 
@@ -172,7 +179,7 @@ func (r *Room) doCheckLogin(uid string, raddr *net.UDPAddr) {
 		fmt.Println("err doCheckLogin:" + err.Error())
 	}
 
-	delete(r.loginMaps, uid)
+	delete(r.loginMaps, struid)
 
 	fmt.Println(string(body))
 }
