@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+	android:layout_height="fill_parent"
+    android:orientation="vertical" >
+
+    <LinearLayout
+	android:id="@+id/content"
+	android:layout_width="fill_parent"
+	android:layout_height="0dp" 
+	android:layout_weight="1"
+	android:orientation="vertical">
+
+        <ListView
+            android:id="@+id/lv_chatroom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" >
+        </ListView>
+
+	</LinearLayout>
+
+	<LinearLayout
+	    android:layout_width="fill_parent"
+	    android:layout_height="wrap_content"
+	    android:gravity="bottom"
+	    android:orientation="horizontal" >
+
+		<Button
+		    android:id="@+id/btn_createroom"
+		    android:layout_width="wrap_content"
+		    android:layout_height="wrap_content"
+		    android:text="创建房间" />
+
+		<Button
+		    android:id="@+id/btn_refresh"
+		    android:layout_width="wrap_content"
+		    android:layout_height="wrap_content"
+		    android:text="刷新列表" />
+
+	</LinearLayout>
+
+</LinearLayout>
