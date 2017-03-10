@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 type Room struct {
@@ -99,7 +98,7 @@ func (r *Room) startUDPRead() {
 		//uid = string(uidbuf)
 		b_buf = bytes.NewBuffer(uidbuf)
 		binary.Read(b_buf, binary.LittleEndian, &uid)
-		fmt.Println("uid is ", uid)
+		//fmt.Println("uid is ", uid)
 		struid = strconv.FormatInt(uid, 10)
 		//fmt.Println("unlogined user try to send data:", allbuf[0:13+datasize])
 		if btype[0] == 0 {
@@ -111,11 +110,11 @@ func (r *Room) startUDPRead() {
 			r.loginMaps[struid] = raddr
 			go r.doCheckLogin(struid, raddr)
 		} else if _, ok := r.iclients[struid]; ok {
-			fmt.Println("data size is ", datasize)
+			//fmt.Println("data size is ", datasize)
 			//trans to client servers
 			// databuf := make([]byte, datasize)
 			// _, raddr, _ := conn.ReadFromUDP(databuf[0:])
-			fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "input client data:" + raddr.String())
+			//fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "input client data:" + raddr.String())
 			// allbuf := make([]byte, 0)
 			// allbuf = append(allbuf, buf...)
 			// allbuf = append(allbuf, uidbuf...)
@@ -165,7 +164,7 @@ func (r *Room) doCheckLogin(struid string, raddr *net.UDPAddr) {
 	info.ErrorCode = -1
 	json.Unmarshal(body, &info)
 
-	var dtype byte
+	var dtype uint8
 	var datasize = int32(0)
 	uid, _ := strconv.ParseInt(struid, 10, 64)
 

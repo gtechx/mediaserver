@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 type Room struct {
@@ -72,11 +71,11 @@ func (r *Room) startUDPRead() {
 
 		b_buf := bytes.NewBuffer(buf)
 		binary.Read(b_buf, binary.LittleEndian, &datasize)
-		fmt.Println("data size is ", datasize)
+		//fmt.Println("data size is ", datasize)
 
 		b_buf = bytes.NewBuffer(uidbuf)
 		binary.Read(b_buf, binary.LittleEndian, &uid)
-		fmt.Println("uid is ", uid)
+		//fmt.Println("uid is ", uid)
 		struid = strconv.FormatInt(uid, 10)
 
 		if btype[0] == 0 {
@@ -97,7 +96,7 @@ func (r *Room) startUDPRead() {
 			// allbuf = append(allbuf, uidbuf...)
 			// allbuf = append(allbuf, btype...)
 			// allbuf = append(allbuf, databuf...)
-			fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "parent data:" + raddr.String())
+			//fmt.Println(time.Now().Format("2006-01-02 15:04:05") + "parent data:" + raddr.String())
 			sendbuf := make([]byte, 0)
 			sendbuf = append(sendbuf, allbuf[0:13+datasize]...)
 			go r.doUDPWrite(sendbuf, struid)
@@ -143,7 +142,7 @@ func (r *Room) doCheckLogin(struid string, raddr *net.UDPAddr) {
 	info.ErrorCode = -1
 	json.Unmarshal(body, &info)
 
-	var dtype byte
+	var dtype uint8
 	var datasize = int32(0)
 	uid, _ := strconv.ParseInt(struid, 10, 64)
 
