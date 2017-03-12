@@ -1,0 +1,100 @@
+关于聊天室房间设置
+是否公开
+是否加密：房间密码
+是否需要验证：验证问题
+是否主播房间
+是否自由房间
+是否可以按键说话
+
+麦序问题：
+自由麦、按键自由说话：不按键说话，属于客户端逻辑
+主播模式
+
+mediaserver是一个支持大量用户在同一个房间进行文字聊天和直播的服务器
+目的是做一个udp转发数据的服务器，不关心用户转发的是语音流数据还是视频流数据或者其它什么数据。
+只要登录成功，服务器就会帮助转发。服务器会维护房间人数和动态分配房间等。
+
+目前udp消息格式：
+
+-----------------
+|4字节-数据大小 |
+---------------
+|8字节-sessionid|
+-----------------
+|1字节-消息类型 |
+-----------------
+|数据 			|
+-----------------
+
+test/client1是udp输入测试客户端
+test/client2是udp接收测试客户端
+
+测试流程：
+	1.双击startserver.bat启动服务器
+	2.双击startinputclient.bat启动输入测试客户端，创建房间
+	3.双击startoutputclient.bat启动接收测试客户端，加入房间并接收数据
+
+以下是后续开发内容：
+消息格式修改：
+	消息格式说明：
+	第一个字节用来表示消息的类型。0xff表示用户消息，其余为特殊用途消息
+
+	当第一个字节为0时，表示客户端登录消息，2-9字节表示sessionid，验证使用sessionid
+	第一个字节为1时，表示为心跳包消息
+	第二个字节为2-0xfe时，表示服务器之间的消息
+
+	登录返回给客户端的消息格式：
+	第一个字节为0时，第二个字节为1时，表示登录成功
+	第一个字节为0时，第二个字节为0时，表示登录失败，说明sessionid没有通过验证。
+
+	登录成功以后，发送的数据不再需要发送sessionid。消息的格式完全由用户自己定义
+
+服务器分为servercenter、receiveserver、broadcastserver三种。
+	servercenter主要使用http服务，receiveserver和broadcastserver房间服务器使用udp传递数据
+	receiveserver、broadcastserver支持横向扩展
+	servercenter是一组服务器，主要是服务器管理和负载均衡。希望做成所有servercenter维护的数据一样，虽然有数据冗余
+
+servercenter服务器功能：
+	1.管理receiveserver和broadcastserver，负责负载均衡
+	2.负责用户登录，创建session
+	3.负责receiveserver和broadcastserver登录验证
+	4.负责房间创建，人数统计
+
+receiveserver功能：
+	负责接收聊天室中需要广播的数据
+	负责给输入者发送心跳包
+
+broadcastserver功能：
+	负责从receiveserver接收聊天室需要广播的数据，并发送给聊天室中其他成员
+	负责给接收者发送心跳包
+
+receiveserver和broadcastserver启动的时候回根据配置连接注册到servercenter服务器
+servercenter服务器负责申请聊天室和服务器负载均衡问题
+当用户申请创建房间时，servercenter服务器根据receiveserver和broadcastserver的负载情况，向负载够用的服务器申请聊天室房间。
+当用户登录receiveserver和broadcastserver时，这两种服务器会向servercenter验证登录，servercenter会记录两个服务器的登录情况，以用作负载计算。
+
+对象分析：
+UDP服务器、房间、HTTP服务器、TCP服务器、消息、客户端连接、服务
+
+房间服务：房间、HTTP服务器
+房间：udp服务器、消息、客户端连接
+udp服务器事件：启动、发送消息、接收消息、关闭
+
+bs server启动流程：
+解析命令行，加载配置
+//启动房间服务
+启动http服务器，并向servercenter注册自己，注册内容包括，ip、port、最大房间数、最大人数
+
+房间创建流程：
+收到房间创建请求
+创建房间
+启动房间udp服务器
+
+rs server启动流程：同bs server
+
+房间创建流程：
+收到房间创建请求
+向bs server申请创建房间
+创建房间，并udp连接bs server房间
+启动房间udp服务器
+
