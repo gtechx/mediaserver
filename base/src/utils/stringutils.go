@@ -5,7 +5,7 @@ import (
 )
 
 //int convert
-func StrtoToInt(s string) (int, error) {
+func StrToInt(s string) (int, error) {
 	i64, err := strconv.ParseInt(s, 10, 0)
 	return int(i64), err
 }
@@ -23,8 +23,27 @@ func UintToStr(n uint) string {
 	return strconv.FormatUint(uint64(n), 10)
 }
 
+//int32 convert
+func StrToInt32(s string) (int32, error) {
+	i64, err := strconv.ParseInt(s, 10, 0)
+	return int32(i64), err
+}
+
+func StrToUint32(s string) (uint32, error) {
+	i64, err := strconv.ParseInt(s, 10, 0)
+	return uint32(i64), err
+}
+
+func Int32ToStr(n int32) string {
+	return strconv.FormatInt(int64(n), 10)
+}
+
+func Uint32ToStr(n uint32) string {
+	return strconv.FormatUint(uint64(n), 10)
+}
+
 //int64 convert
-func StrtoToInt64(s string) (int64, error) {
+func StrToInt64(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 0)
 }
 
