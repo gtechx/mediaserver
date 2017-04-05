@@ -111,8 +111,10 @@ func registerServer() {
 }
 
 var quit chan bool
+var recvChan chan *gtnet.GTUDPPacket
 
 func main() {
+	recvChan = make(chan *gtnet.GTUDPPacket, 1024)
 	quit := make(chan bool)
 	roomtable = make(map[string]*mediasrv.Room)
 	lip := flag.String("ip", "192.168.96.124", "ip address")
@@ -132,14 +134,42 @@ func main() {
 	go startHTTPServer()
 	go registerServer()
 	go startUDPServer()
+	startRecvProcess()
 
 	_ = <-quit
 	//_, err = conn.Write([]byte("HEAD / HTTP/1.0\r\n\r\n"))
 	//_, err = conn.Read(b) / result, err := ioutil.ReadAll(conn)
 }
 
-func onRecv(buff []byte, raddr *net.UDPAddr) {
+func startRecvProcess() {
+	var numCPU = runtime.NumCPU()
 
+	for i := 0; i < numCPU; i++ {
+		go func() {
+			for packet := range recvChan {
+				if g.OnPreSend != nil {
+					g.OnPreSend(packet)
+				}
+
+				num, err := g.conn.Send(packet.buff, packet.raddr)
+				if err != nil {
+					fmt.Println("err Send:" + err.Error())
+					if g.OnError != nil {
+						g.OnError(1, "Send error:"+err.Error())
+					}
+					return
+				}
+
+				if g.onPostSend != nil {
+					g.onPostSend(packet, num)
+				}
+			}
+		}()
+	}
+}
+
+func onRecv(packet *gtnet.GTUDPPacket) {
+	recvChan <- packet
 }
 
 func startUDPServer() {

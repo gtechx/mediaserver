@@ -5,26 +5,26 @@ import (
 	"net"
 )
 
-type GTSendPacket struct {
-	buff  []byte
-	raddr *net.UDPAddr
+type GTUDPPacket struct {
+	Buff  []byte
+	Raddr *net.UDPAddr
 }
 
 type GTUdpServer struct {
 	OnStart    func()
 	OnStop     func()
 	OnError    func(int, string)
-	OnRecv     func([]byte, *net.UDPAddr)
-	OnPreSend  func(*GTSendPacket)
-	onPostSend func(*GTSendPacket, int)
+	OnRecv     func(*GTUDPPacket)
+	OnPreSend  func(*GTUDPPacket)
+	onPostSend func(*GTUDPPacket, int)
 	//OnSend func([]byte, *net.UDPAddr)
 
 	conn     *GTUdpConn
-	sendChan chan *GTSendPacket
+	sendChan chan *GTUDPPacket
 }
 
 func NewUdpServer(ip string, port int) *GTUdpServer {
-	return &GTUdpServer{conn: NewUdpConn(ip, port), sendChan: make(chan *GTSendPacket, 1024)}
+	return &GTUdpServer{conn: NewUdpConn(ip, port), sendChan: make(chan *GTUDPPacket, 1024)}
 }
 
 // func NewUdpServer(addr *net.UDPAddr) *UdpServer {
@@ -71,7 +71,7 @@ func (g *GTUdpServer) Stop() error {
 	return nil
 }
 
-func (g *GTUdpServer) Send(packet *GTSendPacket) {
+func (g *GTUdpServer) Send(packet *GTUDPPacket) {
 	g.sendChan <- packet
 }
 
@@ -94,7 +94,7 @@ func (g *GTUdpServer) startUDPRecv() {
 			newbuf := make([]byte, num)
 			copy(newbuf, buffer[0:num])
 			//newbuf = append(newbuf, buffer[0:num]...)
-			g.OnRecv(newbuf, raddr)
+			g.OnRecv(&GTUDPPacket{newbuf, raddr})
 		}
 	}()
 }
