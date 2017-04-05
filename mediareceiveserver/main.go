@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"gtnet"
 	"io"
 	"io/ioutil"
 	"mediasrv"
@@ -67,7 +68,7 @@ func getCmd(rw http.ResponseWriter, req *http.Request) {
 	// type
 	//id := req.URL.Query().Get("id")
 	id := strconv.Itoa(genID())
-	room := mediasrv.NewRoom(id, sip, getPort(), string(body), scip, scport)
+	room := mediasrv.NewRoom(id, sip, sport, string(body), scip, scport)
 	roomtable[id] = room
 	room.Start()
 
@@ -109,10 +110,10 @@ func registerServer() {
 	fmt.Println(string(body))
 }
 
-var c chan int
+var quit chan bool
 
 func main() {
-	c := make(chan int)
+	quit := make(chan bool)
 	roomtable = make(map[string]*mediasrv.Room)
 	lip := flag.String("ip", "192.168.96.124", "ip address")
 	lport := flag.Int("port", 20001, "port")
@@ -130,55 +131,23 @@ func main() {
 
 	go startHTTPServer()
 	go registerServer()
-	//go startUDPServer()
+	go startUDPServer()
 
-	_ = <-c
+	_ = <-quit
 	//_, err = conn.Write([]byte("HEAD / HTTP/1.0\r\n\r\n"))
 	//_, err = conn.Read(b) / result, err := ioutil.ReadAll(conn)
 }
 
-func handleUDPMessage(conn *net.UDPConn) {
-	var buf [20]byte
+func onRecv(buff []byte, raddr *net.UDPAddr) {
 
-	n, raddr, err := conn.ReadFromUDP(buf[0:])
-	if err != nil {
-		return
-	}
-
-	fmt.Println("msg is ", string(buf[0:n]))
-
-	//WriteToUDP
-	//func (c *UDPConn) WriteToUDP(b []byte, addr *UDPAddr) (int, error)
-	_, err = conn.WriteToUDP([]byte("nice to see u:"+string(buf[0:n])), raddr)
-	if err != nil {
-		fmt.Println("err writetoudp:" + err.Error())
-	}
-
-	//go tttest(conn, raddr)
-	//checkError(err)
-}
-
-func tttest(conn *net.UDPConn, raddr *net.UDPAddr) {
-	var content string
-	for {
-		fmt.Scanln(&content)
-		_, errs := conn.WriteToUDP([]byte(content), raddr)
-		if errs != nil {
-			fmt.Println("err writetoudp:" + errs.Error())
-		}
-	}
 }
 
 func startUDPServer() {
-	udpaddr, _ := net.ResolveUDPAddr("udp", ":4040")
-	conn, err := net.ListenUDP("udp", udpaddr)
+	server := gtnet.NewUdpServer(sip, sport)
+	server.OnRecv = onRecv
+	err := server.Start()
+
 	if err != nil {
-		fmt.Println(err)
-	}
-
-	fmt.Println(udpaddr.String())
-
-	for {
-		handleUDPMessage(conn)
+		fmt.Println("Server start error:" + err.Error())
 	}
 }

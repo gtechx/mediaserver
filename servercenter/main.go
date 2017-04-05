@@ -9,8 +9,8 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
+	"utils"
 )
 
 type client struct {
@@ -69,7 +69,7 @@ func checkSessionId(sessionid string) bool {
 }
 
 func checkAccountAndPassword(account string, password string) bool {
-	intaccount, _ := strconv.Atoi(account)
+	intaccount, _ := utils.StrToInt(account)
 	//intpassword, _ := strconv.Atoi(password)
 
 	if intaccount >= 1000 && intaccount <= 10000 {
@@ -121,8 +121,8 @@ func listRooms(rw http.ResponseWriter, req *http.Request) {
 
 func registerServer(w http.ResponseWriter, req *http.Request) {
 	ip := req.PostFormValue("ip")
-	port, _ := strconv.Atoi(req.PostFormValue("port"))
-	srvtype, _ := strconv.Atoi(req.PostFormValue("type"))
+	port, _ := utils.StrToInt(req.PostFormValue("port"))
+	srvtype, _ := utils.StrToInt(req.PostFormValue("type"))
 	server := ServerInfo{srvtype, ip, port}
 
 	if srvtype == 0 {
@@ -157,7 +157,7 @@ func createRoom(rw http.ResponseWriter, req *http.Request) {
 
 	rsrvinfo := &receiveServerArray[0]
 	bsrvinfo := &broadcastServerArray[0]
-	resp, err := http.Get("http://" + rsrvinfo.Ip + ":" + strconv.Itoa(rsrvinfo.Port) + "/get?ip=" + bsrvinfo.Ip + "&port=" + strconv.Itoa(bsrvinfo.Port))
+	resp, err := http.Get("http://" + rsrvinfo.Ip + ":" + utils.IntToStr(rsrvinfo.Port) + "/get?ip=" + bsrvinfo.Ip + "&port=" + utils.IntToStr(bsrvinfo.Port))
 	defer resp.Body.Close()
 	if err != nil {
 		// handle error
@@ -297,8 +297,8 @@ func userLogin(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	intacc, _ := strconv.Atoi(useraccount)
-	sessionid := strconv.FormatInt(time.Now().UnixNano()+int64(intacc), 10)
+	intacc, _ := utils.StrToInt64(useraccount)                    // strconv.Atoi(useraccount)
+	sessionid := utils.Int64ToStr(time.Now().UnixNano() + intacc) //strconv.FormatInt(time.Now().UnixNano()+int64(intacc), 10)
 
 	// nano := time.Now().UnixNano()
 	// rand.Seed(nano)
