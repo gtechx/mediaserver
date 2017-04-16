@@ -1,67 +1,44 @@
 package main
 
 import (
+	"../common/error"
+	"../common/room"
 	"crypto/md5"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"time"
 	"utils"
 )
 
-type client struct {
-	Ip   string       `json:"ip"`
-	Port int          `json:"port"`
-	conn *net.UDPConn `json:"-"`
-}
-
-type room struct {
-	Id       string                 `json:"id"`
-	Ip       string                 `json:"ip"`
-	Port     int                    `json:"port"`
-	conn     *net.UDPConn           `json:"-"`
-	iclients map[int64]*net.UDPAddr `json:"-"`
-	Clients  []*client              `json:"subroom"`
-}
-
-type roominfo struct {
-	RoomType    string `json:"type"` //主播，自由
-	HasPassword int    `json:"haspassword"`
-	password    string `json:"-"`
-	IsPublic    int    `json:"ispublic"`
-	PRoom       *room  `json:"room"`
-	sessionId   string `json:"-"`
-}
-
-type userInfo struct {
-	account  string
-	password string
-}
-
-var publicRooms []roominfo
-var privateRooms []roominfo
-var roomMaps map[string]*roominfo
-
-var sessionIdMaps map[string]*userInfo
+var publicRoomMap map[string]*gtroom.SCRoom
+var privateRoomMap map[string]*gtroom.SCRoom
+var roomMap map[string]*gtroom.SCRoom
+var sessionIdMap map[string]string
 
 type ServerInfo struct {
-	Servertype int
 	Ip         string
 	Port       int
+	HttpPort   int
+	Servertype string
+	ClientNum  int
 }
 
-var receiveServerArray []ServerInfo
-var broadcastServerArray []ServerInfo
+type BSServer struct {
+	BSArray []*ServerInfo `json:"bs"`
+}
+
+var rsArray []*ServerInfo
+var bsArray []*ServerInfo
 
 var sip string
 var sport int
 
 func checkSessionId(sessionid string) bool {
-	if _, ok := sessionIdMaps[sessionid]; ok {
+	if _, ok := sessionIdMap[sessionid]; ok {
 		return true
 	}
 
@@ -79,17 +56,21 @@ func checkAccountAndPassword(account string, password string) bool {
 	return false
 }
 
+func writeError(rw http.ResponseWriter, errcode int, errmsg string) {
+	io.WriteString(rw, "{\"errorcode\":"+utils.IntToStr(errcode)+", \"error\":\""+errmsg+"\"}")
+}
+
 // hello world, the web server
 func listServers(rw http.ResponseWriter, req *http.Request) {
 	//io.WriteString(w, "hello, world!\n")
-	if len(receiveServerArray) > 0 {
+	if len(rsArray) > 0 {
 		//retdata := "" + strconv.Itoa(receiveServerArray[0].servertype) + receiveServerArray[0].ip
-		b, _ := json.Marshal(receiveServerArray)
+		b, _ := json.Marshal(rsArray)
 		retdata := "{ \"rs\":" + string(b)
 
-		if len(broadcastServerArray) > 0 {
+		if len(bsArray) > 0 {
 			retdata = retdata + ","
-			b, _ = json.Marshal(broadcastServerArray)
+			b, _ = json.Marshal(bsArray)
 			retdata = retdata + "\"bs\":" + string(b)
 		}
 
@@ -97,7 +78,7 @@ func listServers(rw http.ResponseWriter, req *http.Request) {
 
 		io.WriteString(rw, retdata)
 	} else {
-		io.WriteString(rw, "{\"error\":\"no servers\"}")
+		writeError(rw, 9, "no servers")
 	}
 }
 
@@ -105,70 +86,107 @@ func listRooms(rw http.ResponseWriter, req *http.Request) {
 	sessionid := req.URL.Query().Get("sessionid")
 
 	if checkSessionId(sessionid) == false {
-		io.WriteString(rw, "{\"errorcode\":2, \"error\":\"account or password is not right\"}")
+		writeError(rw, 2, "account or password is not right")
 		return
 	}
 
 	fmt.Println("sessionid:" + sessionid + "req listrooms...")
-	if len(publicRooms) > 0 {
-		b, _ := json.Marshal(publicRooms)
+	if len(publicRoomMap) > 0 {
+		b, _ := json.Marshal(publicRoomMap)
 		io.WriteString(rw, string(b))
 	} else {
 		fmt.Println("no rooms")
-		io.WriteString(rw, "{\"errorcode\":3, \"error\":\"no rooms\"}")
+		writeError(rw, 3, "no rooms")
 	}
 }
 
 func registerServer(w http.ResponseWriter, req *http.Request) {
-	ip := req.PostFormValue("ip")
-	port, _ := utils.StrToInt(req.PostFormValue("port"))
-	srvtype, _ := utils.StrToInt(req.PostFormValue("type"))
-	server := ServerInfo{srvtype, ip, port}
+	ip := req.URL.Query().Get("ip")
+	port, _ := utils.StrToInt(req.URL.Query().Get("port"))
+	httpport, _ := utils.StrToInt(req.URL.Query().Get("httpport"))
+	servertype := req.URL.Query().Get("servertype")
+	server := &ServerInfo{ip, port, httpport, servertype, 0}
 
-	if srvtype == 0 {
-		receiveServerArray = append(receiveServerArray, server)
+	if servertype == "rs" {
+		rsArray = append(rsArray, server)
 		fmt.Println("add new rs server ", ip, ":", port)
-		io.WriteString(w, "add successfully\n")
-	} else {
-		broadcastServerArray = append(broadcastServerArray, server)
+		//io.WriteString(w, "add successfully\n")
+
+		if len(bsArray) > 0 {
+			bsserver := new(BSServer)
+			bsserver.BSArray = bsArray
+			//retdata := "" + strconv.Itoa(receiveServerArray[0].servertype) + receiveServerArray[0].ip
+			b, _ := json.Marshal(bsserver)
+			retdata := "{\"bs\":" + string(b)
+
+			retdata = retdata + "}"
+			bsserver1 := new(BSServer)
+			err := json.Unmarshal(b, bsserver1)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+
+			io.WriteString(w, string(b))
+		} else {
+			io.WriteString(w, "add successfully and no bs server\n")
+		}
+	} else if servertype == "bs" {
+		bsArray = append(bsArray, server)
 		fmt.Println("add new bs server ", ip, ":", port)
+
 		io.WriteString(w, "add successfully\n")
 	}
-
 }
 
 func createRoom(rw http.ResponseWriter, req *http.Request) {
 	sessionid := req.URL.Query().Get("sessionid")
+	roomname := sessionIdMap[sessionid]
 
 	if checkSessionId(sessionid) == false {
-		io.WriteString(rw, "{\"errorcode\":2, \"error\":\"account or password is not right\"}")
+		writeError(rw, 2, "account or password is not right")
 		return
 	}
 
-	if len(receiveServerArray) <= 0 {
-		io.WriteString(rw, "{\"errorcode\":3, \"error\":\"receiveServer not start\"}")
+	if _, ok := roomMap[roomname]; ok {
+		writeError(rw, 2, "room has exist")
 		return
 	}
 
-	if len(broadcastServerArray) <= 0 {
-		io.WriteString(rw, "{\"errorcode\":3, \"error\":\"broadcastServer not start\"}")
+	if len(rsArray) <= 0 {
+		writeError(rw, 3, "receiveServer not start")
 		return
 	}
 
-	rsrvinfo := &receiveServerArray[0]
-	bsrvinfo := &broadcastServerArray[0]
-	resp, err := http.Get("http://" + rsrvinfo.Ip + ":" + utils.IntToStr(rsrvinfo.Port) + "/get?ip=" + bsrvinfo.Ip + "&port=" + utils.IntToStr(bsrvinfo.Port))
+	if len(bsArray) <= 0 {
+		writeError(rw, 3, "broadcastServer not start")
+		return
+	}
+
+	rsrvinfo := rsArray[0]
+	bsrvinfo := bsArray[0]
+	resp, err := http.Get("http://" + rsrvinfo.Ip + ":" + utils.IntToStr(rsrvinfo.HttpPort) + "/create?ip=" + bsrvinfo.Ip + "&port=" + utils.IntToStr(bsrvinfo.Port) + "&roomname=" + roomname + "&httpport=" + utils.IntToStr(bsrvinfo.HttpPort))
 	defer resp.Body.Close()
 	if err != nil {
 		// handle error
 		fmt.Println(err.Error())
-		io.WriteString(rw, "error")
+		writeError(rw, 3, "http error")
 		return
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 
+	gterr := new(gterror.Error)
+	json.Unmarshal(body, gterr)
+
+	if gterr.ErrorCode != 0 {
+		writeError(rw, 3, "serve error")
+		return
+	}
+
 	roomtype := req.URL.Query().Get("type")
+	password := req.URL.Query().Get("password")
+	pubtype := req.URL.Query().Get("ispublic")
+
 	if roomtype == "" {
 		fmt.Println("roomtype is blank")
 		roomtype = "ziyou"
@@ -176,109 +194,106 @@ func createRoom(rw http.ResponseWriter, req *http.Request) {
 		fmt.Println("roomtype:", roomtype)
 	}
 
-	password := req.URL.Query().Get("password")
-	haspassword := 1
+	haspassword := int8(1)
 	if password == "" {
 		haspassword = 0
 	}
 
-	pubtype := req.URL.Query().Get("ispublic")
-	ispublic := 0
+	ispublic := int8(0)
 	if pubtype == "" {
 		ispublic = 1
 	}
 
-	var croom room
-	json.Unmarshal(body, &croom)
+	//var croom room
+	//json.Unmarshal(body, &croom)
 	//fmt.Println(croom)
-	newroom := roominfo{roomtype, haspassword, password, ispublic, &croom, sessionid}
+	scroom := gtroom.NewSCRoom(roomname, ispublic, haspassword, password, roomtype)
 
 	if ispublic == 1 {
-		publicRooms = append(publicRooms, newroom)
+		publicRoomMap[roomname] = scroom
 	} else {
-		privateRooms = append(privateRooms, newroom)
+		privateRoomMap[roomname] = scroom
 	}
 
-	roomMaps[croom.Id] = &newroom
+	roomMap[roomname] = scroom
 
-	retdata := string(body)
-	//fmt.Println(string(body))
-	//io.WriteString(rw, string(body))
+	scroom.RSList = append(scroom.RSList, rsrvinfo.Ip+":"+utils.IntToStr(rsrvinfo.Port))
+	scroom.BSList = append(scroom.BSList, bsrvinfo.Ip+":"+utils.IntToStr(bsrvinfo.Port))
 
-	// srvinfo = &broadcastServerArray[0]
-	// resp, err = http.Get("http://" + srvinfo.Ip + ":" + strconv.Itoa(srvinfo.Port) + "/get")
-	// defer resp.Body.Close()
-	// if err != nil {
-	// 	// handle error
-	// 	fmt.Println(err.Error())
-	// 	io.WriteString(rw, "error")
-	// 	return
-	// }
-	// body, err = ioutil.ReadAll(resp.Body)
-
-	// retdata = retdata + string(body)
+	scbyte, _ := json.Marshal(scroom)
+	retdata := string(scbyte)
 
 	fmt.Println(retdata)
 	io.WriteString(rw, retdata)
 }
 
 func checkLogin(rw http.ResponseWriter, req *http.Request) {
-	id := req.URL.Query().Get("id")
-	srvtype := req.URL.Query().Get("srvtype")
+	fmt.Println(req.URL.String())
+	//id := req.URL.Query().Get("id")
+	servertype := req.URL.Query().Get("servertype")
 	sessionid := req.URL.Query().Get("sessionid")
-	proominfo := roomMaps[id]
-	uinfo := sessionIdMaps[sessionid]
-	useraccount := uinfo.account
+	roomname := req.URL.Query().Get("roomname")
+	useraccount := sessionIdMap[sessionid]
+	scroom, ok := roomMap[roomname]
+
+	fmt.Println("roomname:" + roomname + "55")
+
+	//useraccount := uinfo.account
 	//userpassword := uinfo.password
 
-	if checkSessionId(sessionid) == false {
-		io.WriteString(rw, "{\"errorcode\":2, \"error\":\"account or password is not right\"}")
+	if !ok {
+		writeError(rw, 2, "room not exist")
 		return
 	}
 
-	if srvtype == "rs" {
-		if proominfo.RoomType == "zhubo" {
-			if sessionid == proominfo.sessionId {
+	if checkSessionId(sessionid) == false {
+		writeError(rw, 2, "account or password is not right")
+		return
+	}
+
+	if servertype == "rs" {
+		if scroom.RoomType == "zhubo" {
+			if useraccount == scroom.Name {
 				fmt.Println("zhubo:" + useraccount + " logined success")
-				io.WriteString(rw, "{\"ok\":\"login success\"}")
+				writeError(rw, 0, "login success")
 			} else {
 				fmt.Println("zhubo:" + useraccount + " login failed")
-				io.WriteString(rw, "{\"errorcode\":2,\"error\":\"account or password is not right\"}")
+				writeError(rw, 2, "account or password is not right")
 			}
 		} else {
-			if proominfo.HasPassword == 1 {
+			if scroom.HasPassword == 1 {
 				password := req.URL.Query().Get("password")
 
-				if password == proominfo.password {
-					fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + proominfo.PRoom.Id + " success")
-					io.WriteString(rw, "{\"ok\":\"login success\"}")
+				if password == scroom.Password {
+					fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + scroom.Name + " success")
+					writeError(rw, 0, "login success")
 				} else {
-					fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + proominfo.PRoom.Id + " failed")
-					io.WriteString(rw, "{\"errorcode\":2,\"error\":\"password is not right\"}")
+					fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + scroom.Name + " failed")
+					writeError(rw, 2, "room password is not right")
 				}
 			} else {
-				fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + proominfo.PRoom.Id + " success, without password")
-				io.WriteString(rw, "{\"ok\":\"login success\"}")
+				fmt.Println("user:" + useraccount + " logined in ziyou rs room:" + scroom.Name + " success, without password")
+				writeError(rw, 0, "login success")
 			}
 		}
-	} else if srvtype == "bs" {
-		if proominfo.HasPassword == 1 {
+	} else if servertype == "bs" {
+		if scroom.HasPassword == 1 {
 			password := req.URL.Query().Get("password")
 
-			if password == proominfo.password {
-				fmt.Println("user:" + useraccount + " logined in bs room:" + proominfo.PRoom.Id + " success")
-				io.WriteString(rw, "{\"ok\":\"login success\"}")
+			if password == scroom.Password {
+				fmt.Println("user:" + useraccount + " logined in bs room:" + scroom.Name + " success")
+				writeError(rw, 0, "login success")
 			} else {
-				fmt.Println("user:" + useraccount + " logined in bs room:" + proominfo.PRoom.Id + " failed")
-				io.WriteString(rw, "{\"errorcode\":2,\"error\":\"password is not right\"}")
+				fmt.Println("user:" + useraccount + " logined in bs room:" + scroom.Name + " failed")
+				writeError(rw, 2, "room password is not right")
 			}
 		} else {
-			fmt.Println("user:" + useraccount + " logined in bs room:" + proominfo.PRoom.Id + " success, without password")
-			io.WriteString(rw, "{\"ok\":\"login success\"}")
+			fmt.Println("user:" + useraccount + " logined in bs room:" + scroom.Name + " success, without password")
+			writeError(rw, 0, "login success")
 		}
 	} else {
-		fmt.Println("user:" + useraccount + " try to login in room:" + proominfo.PRoom.Id + " with error srvtype:" + srvtype + "(rs/bs)")
-		io.WriteString(rw, "{\"errorcode\":1,\"error\":\"login failed\"}")
+		fmt.Println("user:" + useraccount + " try to login in room:" + scroom.Name + " with error srvtype:" + servertype + "(rs/bs)")
+		writeError(rw, 1, "login failed")
 	}
 }
 
@@ -293,7 +308,7 @@ func userLogin(rw http.ResponseWriter, req *http.Request) {
 	userpassword := req.URL.Query().Get("userpassword")
 
 	if checkAccountAndPassword(useraccount, userpassword) == false {
-		io.WriteString(rw, "{\"errorcode\":2, \"error\":\"account or password is not right\"}")
+		writeError(rw, 2, "account or password is not right")
 		return
 	}
 
@@ -306,11 +321,11 @@ func userLogin(rw http.ResponseWriter, req *http.Request) {
 	// sessionid := Md5(Md5(strconv.FormatInt(nano, 10)) + Md5(strconv.FormatInt(rndNum, 10)))
 	// sessionid = sessionid + sessionid
 
-	accinfo := userInfo{useraccount, userpassword}
-	sessionIdMaps[sessionid] = &accinfo
-	fmt.Println("user:" + useraccount + " logined")
+	//accinfo := userInfo{useraccount, userpassword}
+	sessionIdMap[sessionid] = useraccount
+	fmt.Println("user:" + useraccount + " logined, sessionid=" + sessionid)
 
-	io.WriteString(rw, "{\"uid\":"+sessionid+"}")
+	io.WriteString(rw, "{\"sessionid\":"+sessionid+"}")
 }
 
 func startHTTP() {
@@ -323,13 +338,15 @@ func startHTTP() {
 	http.ListenAndServe(":12345", nil)
 }
 
-var c chan int
+var quit chan int
 
 func main() {
-	sessionIdMaps = make(map[string]*userInfo)
-	roomMaps = make(map[string]*roominfo)
-	c := make(chan int)
-	pip := flag.String("ip", "192.168.96.124", "ip address")
+	publicRoomMap = make(map[string]*gtroom.SCRoom)
+	privateRoomMap = make(map[string]*gtroom.SCRoom)
+	sessionIdMap = make(map[string]string)
+	roomMap = make(map[string]*gtroom.SCRoom)
+	quit := make(chan int)
+	pip := flag.String("ip", "192.168.1.50", "ip address")
 	pport := flag.Int("port", 20001, "port")
 	flag.Parse()
 	sip = *pip
@@ -341,69 +358,69 @@ func main() {
 	//go startTCP()
 	//go startUDPCon()
 
-	_ = <-c
+	_ = <-quit
 }
 
-func handleConnection(conn *net.TCPConn) {
-	server := ServerInfo{0, "127.0.0.1", 8000}
-	receiveServerArray = append(receiveServerArray, server)
-	fmt.Println(len(receiveServerArray))
-	for {
+// func handleConnection(conn *net.TCPConn) {
+// 	server := ServerInfo{0, "127.0.0.1", 8000}
+// 	receiveServerArray = append(receiveServerArray, server)
+// 	fmt.Println(len(receiveServerArray))
+// 	for {
 
-	}
-}
+// 	}
+// }
 
-func startTCP() {
-	//creat tcp
-	fmt.Println("tcp creating")
-	service := ":9090"
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-	ln, err := net.ListenTCP("tcp", tcpAddr)
-	if err != nil {
-		// handle error
-	}
-	for {
-		conn, err := ln.AcceptTCP()
-		if err != nil {
-			// handle error
-		}
-		fmt.Println(conn.RemoteAddr().String() + " connected")
-		go handleConnection(conn)
-	}
-}
+// func startTCP() {
+// 	//creat tcp
+// 	fmt.Println("tcp creating")
+// 	service := ":9090"
+// 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
+// 	ln, err := net.ListenTCP("tcp", tcpAddr)
+// 	if err != nil {
+// 		// handle error
+// 	}
+// 	for {
+// 		conn, err := ln.AcceptTCP()
+// 		if err != nil {
+// 			// handle error
+// 		}
+// 		fmt.Println(conn.RemoteAddr().String() + " connected")
+// 		go handleConnection(conn)
+// 	}
+// }
 
-func startUDPCon() {
-	//conn, err := net.Dial("udp", "127.0.0.1:4040")
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:4040")
+// func startUDPCon() {
+// 	//conn, err := net.Dial("udp", "127.0.0.1:4040")
+// 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:4040")
 
-	//udp连接
-	conn, err := net.DialUDP("udp", nil, udpAddr)
-	//defer conn.Close()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+// 	//udp连接
+// 	conn, err := net.DialUDP("udp", nil, udpAddr)
+// 	//defer conn.Close()
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return
+// 	}
 
-	conn.Write([]byte("Hello world!"))
+// 	conn.Write([]byte("Hello world!"))
 
-	go processUDPRead(conn)
-	go processUDPWrite(conn)
-}
+// 	go processUDPRead(conn)
+// 	go processUDPWrite(conn)
+// }
 
-func processUDPRead(conn *net.UDPConn) {
-	var content string
-	for {
-		fmt.Scanln(&content)
-		conn.Write([]byte(content))
-		fmt.Println("send msg is " + content)
-	}
+// func processUDPRead(conn *net.UDPConn) {
+// 	var content string
+// 	for {
+// 		fmt.Scanln(&content)
+// 		conn.Write([]byte(content))
+// 		fmt.Println("send msg is " + content)
+// 	}
 
-}
+// }
 
-func processUDPWrite(conn *net.UDPConn) {
-	for {
-		var msg [128]byte
-		conn.Read(msg[0:])
-		fmt.Println("recv msg is ", string(msg[0:]))
-	}
-}
+// func processUDPWrite(conn *net.UDPConn) {
+// 	for {
+// 		var msg [128]byte
+// 		conn.Read(msg[0:])
+// 		fmt.Println("recv msg is ", string(msg[0:]))
+// 	}
+// }

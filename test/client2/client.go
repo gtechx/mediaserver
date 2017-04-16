@@ -2,6 +2,10 @@ package main
 
 import (
 	//"encoding/json"
+	"../../common"
+	"../../common/error"
+	"../../common/protocol"
+	"../../common/room"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
@@ -10,7 +14,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"strconv"
+	"utils"
 	//"net/http"
 )
 
@@ -30,10 +34,13 @@ var c chan int
 var sip string
 var sport int
 
+var roomMap map[string]*gtroom.SCRoom
+
 func main() {
 	c := make(chan int)
+	roomMap = make(map[string]*gtroom.SCRoom)
 
-	pip := flag.String("ip", "192.168.96.124", "ip address")
+	pip := flag.String("ip", "192.168.1.50", "ip address")
 	pport := flag.Int("port", 20001, "port")
 	flag.Parse()
 	sip = *pip
@@ -46,44 +53,8 @@ func main() {
 }
 
 type loginInfo struct {
-	SessionId int64  `json:"uid"`
-	ErrorCode int    `json:"errorcode"`
-	Error     string `json:"error"`
+	SessionId uint64 `json:"sessionid"`
 }
-
-var info loginInfo
-
-type client struct {
-	Ip   string `json:"ip"`
-	Port int    `json:"port"`
-}
-type room struct {
-	Id        string    `json:"id"`
-	Ip        string    `json:"ip"`
-	Port      int       `json:"port"`
-	Clients   []*client `json:"subroom"`
-	ErrorCode int       `json:"errorcode"`
-	Error     string    `json:"error"`
-}
-
-var loginedroom room
-
-type roomInfo struct {
-	RoomType    string `json:"type"` //主播，自由
-	HasPassword int    `json:"haspassword"`
-	password    string `json:"-"`
-	IsPublic    int    `json:"ispublic"`
-	PRoom       *room  `json:"room"`
-	sessionId   string `json:"-"`
-}
-
-type errorInfo struct {
-	ErrorCode int    `json:"errorcode"`
-	Error     string `json:"error"`
-}
-
-var listroominfo []roomInfo
-var errInfo errorInfo
 
 func startUDPCon() {
 	fmt.Println("logining..." + "http://" + sip + ":12345/login?useraccount=1002")
@@ -98,64 +69,67 @@ func startUDPCon() {
 	body, err := ioutil.ReadAll(resp.Body)
 
 	fmt.Println(string(body))
-	info.ErrorCode = -1
-	// var rinfo roomInfo
-	json.Unmarshal(body, &info)
+	gterr := new(gterror.Error)
+	json.Unmarshal(body, gterr)
 
-	// b, _ := json.Marshal(rinfo)
+	if gterr.ErrorCode != 0 {
+		return
+	}
+
+	info := new(loginInfo)
+	json.Unmarshal(body, info)
+
 	fmt.Println(info)
 
-	if info.ErrorCode == -1 {
-		//create room
-		fmt.Println("creating room...")
-		resp, err = http.Get("http://" + sip + ":12345/listrooms?sessionid=" + strconv.FormatInt(info.SessionId, 10))
-		defer resp.Body.Close()
+	//list room
+	fmt.Println("creating room...")
+	resp, err = http.Get("http://" + sip + ":12345/listrooms?sessionid=" + utils.Uint64ToStr(info.SessionId))
+	defer resp.Body.Close()
+	if err != nil {
+		// handle error
+		fmt.Println(err.Error())
+		//io.WriteString(rw, "{\"error\":\"http error\"}")
+		return
+	}
+	body, err = ioutil.ReadAll(resp.Body)
+
+	fmt.Println(string(body))
+	json.Unmarshal(body, gterr)
+	if gterr.ErrorCode != 0 {
+		return
+	}
+
+	err = json.Unmarshal(body, &roomMap)
+
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	var conn *net.UDPConn
+	for _, value := range roomMap {
+		udpAddr, err := net.ResolveUDPAddr("udp", value.BSList[0])
+
+		//udp连接
+		conn, err = net.DialUDP("udp", nil, udpAddr)
+		//defer conn.Close()
 		if err != nil {
-			// handle error
-			fmt.Println(err.Error())
-			//io.WriteString(rw, "{\"error\":\"http error\"}")
+			fmt.Println(err)
 			return
 		}
-		body, err = ioutil.ReadAll(resp.Body)
 
-		//listroominfo.ErrorCode = -1
-		errInfo.ErrorCode = -1
-		json.Unmarshal(body, &errInfo)
+		//login
+		proto := new(gtprotocol.ReqLoginProtocol)
+		proto.DataSize = 8
+		proto.MsgType = common.MSG_REQ_LOGIN
+		copy(proto.RoomName[:], []byte("1001"))
+		proto.SessionId = info.SessionId
 
-		if errInfo.ErrorCode == -1 {
-			json.Unmarshal(body, &listroominfo)
-			fmt.Println(string(body))
-			fmt.Println(listroominfo)
-
-			//conn, err := net.Dial("udp", "127.0.0.1:4040")
-			fmt.Println(listroominfo)
-			udpAddr, err := net.ResolveUDPAddr("udp", listroominfo[0].PRoom.Clients[0].Ip+":"+strconv.Itoa(listroominfo[0].PRoom.Clients[0].Port))
-
-			//udp连接
-			conn, err := net.DialUDP("udp", nil, udpAddr)
-			//defer conn.Close()
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-
-			buf := make([]byte, 4)
-
-			bytesBuffer := bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, info.SessionId)
-			buf = append(buf, bytesBuffer.Bytes()...)
-
-			buf = append(buf, []byte{0}...)
-			fmt.Println(buf)
-			conn.Write(buf)
-			//conn.Write([]byte("Hello world!"))
-
-			//go processUDPRead(conn)
-			go processUDPRead(conn)
-		} else {
-			fmt.Println("error:", errInfo)
-		}
+		fmt.Println("send login msg to server:" + value.BSList[0])
+		conn.Write(proto.ToBytes())
+		break
 	}
+
+	go processUDPRead(conn)
 }
 
 func processUDPWrite(conn *net.UDPConn) {
@@ -192,35 +166,29 @@ func processUDPRead(conn *net.UDPConn) {
 	for {
 		allbuf := make([]byte, 2048)
 
-		var datasize int32
-		var uid int64
-
 		_, err := conn.Read(allbuf[0:])
 		if err != nil {
 			fmt.Println("err:" + err.Error())
 			continue
 		}
 
-		dsizebuf := allbuf[0:4]
-		uidbuf := allbuf[4:12]
-		btype := allbuf[12:13]
+		var msgtype int16
+		utils.BytesToNum(allbuf[4:8], &msgtype)
 
-		b_buf := bytes.NewBuffer(dsizebuf)
-		binary.Read(b_buf, binary.LittleEndian, &datasize)
-		fmt.Println("data size is ", datasize)
+		if msgtype == common.MSG_RET_LOGIN {
+			proto := new(gtprotocol.RetLoginProtocol)
+			proto.Parse(allbuf)
 
-		b_buf = bytes.NewBuffer(uidbuf)
-		binary.Read(b_buf, binary.LittleEndian, &uid)
-		fmt.Println("uid is ", uid)
+			if proto.Result == 1 {
+				fmt.Println("login to bs server ok")
+			} else {
+				fmt.Println("login to bs server failed")
+			}
+		} else if msgtype == common.MSG_DATA_TRANS {
+			proto := new(gtprotocol.DataTransProtocol)
+			proto.Parse(allbuf)
 
-		fmt.Println("type is ", btype[0])
-
-		if btype[0] == 200 {
-			fmt.Println("login to bs server ok")
+			fmt.Println("recv msg is ", proto.Data)
 		}
-
-		databuf := allbuf[13 : 13+datasize]
-
-		fmt.Println("recv msg is ", databuf)
 	}
 }

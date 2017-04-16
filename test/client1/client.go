@@ -2,8 +2,11 @@ package main
 
 import (
 	//"encoding/json"
+	"../../common"
+	"../../common/error"
+	"../../common/protocol"
+	"../../common/room"
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,8 +15,9 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
+	"utils"
+	//"unsafe"
 	//"net/http"
 )
 
@@ -36,7 +40,7 @@ var sport int
 func main() {
 	c := make(chan int)
 
-	pip := flag.String("ip", "192.168.96.124", "ip address")
+	pip := flag.String("ip", "192.168.1.50", "ip address")
 	pport := flag.Int("port", 20001, "port")
 	flag.Parse()
 	sip = *pip
@@ -49,27 +53,8 @@ func main() {
 }
 
 type loginInfo struct {
-	SessionId int64  `json:"uid"`
-	ErrorCode int    `json:"errorcode"`
-	Error     string `json:"error"`
+	SessionId uint64 `json:"sessionid"`
 }
-
-var info loginInfo
-
-type client struct {
-	Ip   string `json:"ip"`
-	Port int    `json:"port"`
-}
-type roomInfo struct {
-	Id        string    `json:"id"`
-	Ip        string    `json:"ip"`
-	Port      int       `json:"port"`
-	Clients   []*client `json:"subroom"`
-	ErrorCode int       `json:"errorcode"`
-	Error     string    `json:"error"`
-}
-
-var loginedroom roomInfo
 
 func startUDPCon() {
 	fmt.Println("logining..." + "http://" + sip + ":12345/login?useraccount=1001")
@@ -84,57 +69,75 @@ func startUDPCon() {
 	body, err := ioutil.ReadAll(resp.Body)
 
 	fmt.Println(string(body))
-	info.ErrorCode = -1
-	// var rinfo roomInfo
-	json.Unmarshal(body, &info)
+	gterr := new(gterror.Error)
+	json.Unmarshal(body, gterr)
+
+	if gterr.ErrorCode != 0 {
+		return
+	}
+
+	info := new(loginInfo)
+	json.Unmarshal(body, info)
 
 	// b, _ := json.Marshal(rinfo)
 	fmt.Println(info)
 
-	if info.ErrorCode == -1 {
-		//create room
-		fmt.Println("creating room...")
-		resp, err = http.Get("http://" + sip + ":12345/create?sessionid=" + strconv.FormatInt(info.SessionId, 10))
-		defer resp.Body.Close()
-		if err != nil {
-			// handle error
-			fmt.Println(err.Error())
-			//io.WriteString(rw, "{\"error\":\"http error\"}")
-			return
-		}
-		body, err = ioutil.ReadAll(resp.Body)
-
-		loginedroom.ErrorCode = -1
-		json.Unmarshal(body, &loginedroom)
-
-		if loginedroom.ErrorCode == -1 {
-			//conn, err := net.Dial("udp", "127.0.0.1:4040")
-			fmt.Println("create room success")
-			udpAddr, err := net.ResolveUDPAddr("udp", loginedroom.Ip+":"+strconv.Itoa(loginedroom.Port))
-
-			//udp连接
-			conn, err := net.DialUDP("udp", nil, udpAddr)
-			//defer conn.Close()
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-
-			buf := make([]byte, 4)
-
-			bytesBuffer := bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, info.SessionId)
-			buf = append(buf, bytesBuffer.Bytes()...)
-
-			buf = append(buf, []byte{0}...)
-			fmt.Println(buf)
-			conn.Write(buf)
-			//conn.Write([]byte("Hello world!"))
-
-			//go processUDPRead(conn)
-			go processUDPRead(conn)
-		}
+	//create room
+	fmt.Println("creating room...")
+	fmt.Println("http://" + sip + ":12345/create?sessionid=" + utils.Uint64ToStr(info.SessionId) + "&roomname=1001")
+	resp, err = http.Get("http://" + sip + ":12345/create?sessionid=" + utils.Uint64ToStr(info.SessionId) + "&roomname=1001")
+	defer resp.Body.Close()
+	if err != nil {
+		// handle error
+		fmt.Println(err.Error())
+		//io.WriteString(rw, "{\"error\":\"http error\"}")
+		return
 	}
+	body, err = ioutil.ReadAll(resp.Body)
+
+	fmt.Println(string(body))
+	json.Unmarshal(body, gterr)
+	if gterr.ErrorCode != 0 {
+		return
+	}
+
+	room := new(gtroom.SCRoom)
+	json.Unmarshal(body, room)
+
+	//conn, err := net.Dial("udp", "127.0.0.1:4040")
+	fmt.Println("create room success")
+	udpAddr, err := net.ResolveUDPAddr("udp", room.RSList[0])
+
+	//udp连接
+	conn, err := net.DialUDP("udp", nil, udpAddr)
+	//defer conn.Close()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	//login
+	proto := new(gtprotocol.ReqLoginProtocol)
+	proto.DataSize = 8
+	proto.MsgType = common.MSG_REQ_LOGIN
+	copy(proto.RoomName[:], []byte("1001"))
+	//strbyte := make([]byte, 32)
+	//copy(strbyte, proto.RoomName[:])
+	index := bytes.IndexByte(proto.RoomName[:], 0)
+	//rbyf_pn := proto.RoomName[0:index]
+	//str := *(*string)(unsafe.Pointer(&strbyte))
+	//str = strings.TrimSpace(str)
+	//str = strings.Replace(str, " ", "", -1)
+	fmt.Println(string(proto.RoomName[0:index]) + "55")
+	proto.SessionId = info.SessionId
+	buff := proto.ToBytes()
+	fmt.Println("buff:", buff)
+
+	conn.Write(buff)
+	//conn.Write([]byte("Hello world!"))
+
+	//go processUDPRead(conn)
+	go processUDPRead(conn)
 }
 
 func processUDPWrite(conn *net.UDPConn) {
@@ -169,30 +172,15 @@ func processUDPWrite(conn *net.UDPConn) {
 				fmt.Println("read file err:" + err.Error())
 				return
 			}
-			var datasize int32
-			//var uid int64
-			var dtype byte
+			proto := new(gtprotocol.DataTransProtocol)
+			proto.DataSize = int32(num)
+			proto.MsgType = common.MSG_DATA_TRANS
+			copy(proto.RoomName[:], []byte("1001"))
+			proto.Data = wavbuf
 
-			//uid = 1012
-			dtype = 2
-			datasize = int32(num)
-
-			bytesBuffer := bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, datasize)
-			sendbuf := bytesBuffer.Bytes()
-
-			bytesBuffer = bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, info.SessionId)
-			sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
-
-			bytesBuffer = bytes.NewBuffer([]byte{})
-			binary.Write(bytesBuffer, binary.LittleEndian, dtype)
-			sendbuf = append(sendbuf, bytesBuffer.Bytes()...)
-
-			sendbuf = append(sendbuf, wavbuf[0:num]...)
-
-			conn.Write(sendbuf)
-			fmt.Println("send msg is ", wavbuf[0:num])
+			buff := proto.ToBytes()
+			fmt.Println("send msg is ", buff)
+			conn.Write(buff)
 		}
 	}
 	f.Close()
@@ -202,34 +190,20 @@ func processUDPRead(conn *net.UDPConn) {
 	for {
 		allbuf := make([]byte, 2048)
 
-		var datasize int32
-		var uid int64
-
 		_, err := conn.Read(allbuf[0:])
 		if err != nil {
 			fmt.Println("err:" + err.Error())
 			continue
 		}
 
-		dsizebuf := allbuf[0:4]
-		uidbuf := allbuf[4:12]
-		btype := allbuf[12:13]
+		proto := new(gtprotocol.RetLoginProtocol)
+		proto.Parse(allbuf)
 
-		b_buf := bytes.NewBuffer(dsizebuf)
-		binary.Read(b_buf, binary.LittleEndian, &datasize)
-		fmt.Println("data size is ", datasize)
-
-		b_buf = bytes.NewBuffer(uidbuf)
-		binary.Read(b_buf, binary.LittleEndian, &uid)
-		fmt.Println("uid is ", uid)
-
-		fmt.Println("type is ", btype[0])
-
-		if btype[0] == 200 {
-			fmt.Println("connect rs server ok, start sending data...")
+		if proto.Result == 1 {
+			fmt.Println("login rs server ok, start sending data...")
 			go processUDPWrite(conn)
 		} else {
-			fmt.Println("connect rs server failed")
+			fmt.Println("login rs server failed")
 		}
 	}
 }

@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"bytes"
 	"strconv"
+	//"unsafe"
 )
 
 //int convert
@@ -75,4 +77,10 @@ func Floa32ToStr(f float32) string {
 
 func Floa64ToStr(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func BytesToStr(buff []byte) string {
+	index := bytes.IndexByte(buff, 0)
+	return string(buff[0:index])
+	//return *(*string)(unsafe.Pointer(&buff))
 }

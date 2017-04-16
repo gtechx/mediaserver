@@ -1,19 +1,33 @@
 package main
 
 import (
+	"../common"
+	"../common/error"
+	"../common/protocol"
+	"../common/room"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"gtnet"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
-	"net/url"
+	"runtime"
 	"strconv"
+	"utils"
 )
 
-var roomtable map[string]*Room
-var roomid int
-var portid int = 30000
+var roomMap map[string]*gtroom.BSRoom
+
+var clientServer *gtnet.GTUdpServer
+var transServer *gtnet.GTUdpServer
+var rsConnList []*net.UDPConn
+
+var recvLoginChan chan *gtnet.GTUDPPacket
+var recvTransChan chan *gtnet.GTUDPPacket
+
 var c chan int
 
 var sip string
@@ -21,14 +35,20 @@ var sport int
 var scip string
 var scport int
 
+func writeError(rw http.ResponseWriter, errcode int, errmsg string) {
+	io.WriteString(rw, "{\"errorcode\":"+utils.IntToStr(errcode)+", \"error\":\""+errmsg+"\"}")
+}
+
 func main() {
 	c := make(chan int)
-	roomtable = make(map[string]*Room)
+	roomMap = make(map[string]*gtroom.BSRoom)
+	recvLoginChan = make(chan *gtnet.GTUDPPacket, 1024)
+	recvTransChan = make(chan *gtnet.GTUDPPacket, 1024)
 
-	lip := flag.String("ip", "192.168.96.124", "ip address")
-	lport := flag.Int("port", 20001, "port")
+	lip := flag.String("ip", "192.168.1.50", "ip address")
+	lport := flag.Int("port", 30001, "port")
 
-	pip := flag.String("scip", "192.168.96.124", "server center ip address")
+	pip := flag.String("scip", "192.168.1.50", "server center ip address")
 	pport := flag.Int("scport", 12345, "server center http port")
 
 	flag.Parse()
@@ -40,19 +60,19 @@ func main() {
 	fmt.Println("port:", sport)
 
 	go startHTTPServer()
-	go registerServer()
+	go startUDPServer()
+	startRecvProcess()
+	startTransRecvProcess()
+	registerServer()
 
 	_ = <-c
 }
 
 func registerServer() {
-	resp, err := http.PostForm("http://"+scip+":"+strconv.Itoa(scport)+"/register",
-		url.Values{"ip": {scip}, "port": {"3030"}, "type": {"1"}})
+	resp, err := http.Get("http://" + scip + ":" + strconv.Itoa(scport) + "/register?httpport=3030&servertype=bs&ip=" + sip + "&port=" + utils.IntToStr(sport))
 
 	if err != nil {
 		// handle error
-		fmt.Println(err.Error())
-		return
 	}
 
 	defer resp.Body.Close()
@@ -65,19 +85,9 @@ func registerServer() {
 }
 
 func startHTTPServer() {
-	http.HandleFunc("/get", getCmd)
+	http.HandleFunc("/create", createCmd)
 	http.HandleFunc("/list", listCmd)
 	http.ListenAndServe(":3030", nil)
-}
-
-func genID() int {
-	roomid++
-	return roomid
-}
-
-func getPort() int {
-	portid++
-	return portid
 }
 
 // type roomInfo struct {
@@ -86,35 +96,178 @@ func getPort() int {
 // 	port int    `json:"port1"`
 // }
 
-func getCmd(rw http.ResponseWriter, req *http.Request) {
-	id := strconv.Itoa(genID())
-	room := NewRoom(id, sip, getPort(), scip, scport)
-	roomtable[id] = room
-	room.Start()
+func createCmd(rw http.ResponseWriter, req *http.Request) {
+	fmt.Println(req.URL.String())
+	roomname := req.URL.Query().Get("roomname")
 
-	fmt.Println(room.Id, room.Ip, room.Port)
-	// var rinfo roomInfo
-	// rinfo.id = room.id
-	// rinfo.ip = room.ip
-	// rinfo.port = room.port
-	//rinfo := roomInfo{room.id, room.ip, room.port}
-	b, err := json.Marshal(room)
-	if err != nil {
-		fmt.Println("json err:" + err.Error())
-		io.WriteString(rw, "json error")
-		return
-	}
-	fmt.Println("room data:" + string(b))
-	retdata := string(b)
-	io.WriteString(rw, retdata)
+	bsroom := gtroom.NewBSRoom(roomname)
+	roomMap[roomname] = bsroom
+
+	writeError(rw, 0, "ok")
 }
 
 func listCmd(rw http.ResponseWriter, req *http.Request) {
-	if len(roomtable) > 0 {
-		b, _ := json.Marshal(roomtable)
+	if len(roomMap) > 0 {
+		b, _ := json.Marshal(roomMap)
 		//json.Encoder.Encode("v")
 		io.WriteString(rw, string(b))
 	} else {
-		io.WriteString(rw, "no room on this server")
+		writeError(rw, 6, "no room on this server")
 	}
+}
+
+func processLogin(packet *gtnet.GTUDPPacket, bsroom *gtroom.BSRoom) {
+	proto := new(gtprotocol.ReqLoginProtocol)
+	proto.Parse(packet.Buff)
+
+	strsid := utils.Uint64ToStr(proto.SessionId)
+	roomname := utils.BytesToStr(proto.RoomName[:])
+	resp, err := http.Get("http://" + scip + ":" + strconv.Itoa(scport) + "/checklogin?servertype=bs&sessionid=" + strsid + "&roomname=" + roomname)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		retLoginFailMsg(packet)
+		return
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		retLoginFailMsg(packet)
+		return
+	}
+
+	fmt.Println(string(body))
+	var gterr gterror.Error
+	json.Unmarshal(body, &gterr)
+
+	if gterr.ErrorCode != 0 {
+		retLoginFailMsg(packet)
+		return
+	}
+
+	//add client to room
+	bsroom.AddClient(strsid, packet.Raddr)
+
+	//ret login success msg
+	retproto := new(gtprotocol.RetLoginProtocol)
+	retproto.DataSize = 1
+	retproto.MsgType = common.MSG_RET_LOGIN
+	retproto.Result = 1
+
+	packet.Buff = retproto.ToBytes()
+	clientServer.Send(packet)
+}
+
+func retLoginFailMsg(packet *gtnet.GTUDPPacket) {
+	retproto := new(gtprotocol.RetLoginProtocol)
+	retproto.DataSize = 1
+	retproto.MsgType = common.MSG_RET_LOGIN
+	retproto.Result = 0
+
+	packet.Buff = retproto.ToBytes()
+	clientServer.Send(packet)
+}
+
+func startRecvProcess() {
+	var numCPU = runtime.NumCPU()
+	fmt.Println("startRecvProcess")
+
+	for i := 0; i < numCPU; i++ {
+		go func() {
+			for packet := range recvLoginChan {
+				pack := packet
+				var msgtype int16
+				utils.BytesToNum(pack.Buff[4:8], &msgtype)
+				// pack := packet
+				// proto := new(gtprotocol.Protocol)
+				// proto.Parse(pack.Buff)
+
+				index := bytes.IndexByte(pack.Buff[8:40], 0)
+				roomname := string(pack.Buff[8 : 8+index])
+
+				fmt.Println("process msgtype:", msgtype)
+				fmt.Println("room name:", roomname+"222")
+
+				bsroom, ok := roomMap[roomname]
+
+				if ok {
+					if msgtype == common.MSG_REQ_LOGIN {
+						go processLogin(pack, bsroom)
+					}
+				} else {
+					fmt.Println("room not on server")
+					retLoginFailMsg(pack)
+				}
+			}
+		}()
+	}
+}
+
+func startTransRecvProcess() {
+	var numCPU = runtime.NumCPU()
+	fmt.Println("startTransRecvProcess")
+
+	for i := 0; i < numCPU; i++ {
+		go func() {
+			for packet := range recvTransChan {
+				pack := packet
+				var msgtype int16
+				utils.BytesToNum(pack.Buff[4:8], &msgtype)
+				// pack := packet
+				// proto := new(gtprotocol.Protocol)
+				// proto.Parse(pack.Buff)
+
+				if msgtype != common.MSG_RS_CONN {
+					index := bytes.IndexByte(pack.Buff[8:40], 0)
+					roomname := string(pack.Buff[8 : 8+index])
+
+					bsroom, ok := roomMap[roomname]
+
+					if ok {
+						if msgtype == common.MSG_DATA_TRANS {
+							for _, caddr := range bsroom.ClientList {
+								pack.Raddr = caddr
+								//fmt.Println("send data to client")
+								//fmt.Println("data:", pack.Buff)
+								clientServer.Send(pack)
+							}
+						}
+					}
+				} else {
+					fmt.Println("rs server connected:" + pack.Raddr.String())
+				}
+			}
+		}()
+	}
+}
+
+func onRecv(packet *gtnet.GTUDPPacket) {
+	recvLoginChan <- packet
+}
+
+func onTransRecv(packet *gtnet.GTUDPPacket) {
+	recvTransChan <- packet
+}
+
+func startUDPServer() {
+	clientServer = gtnet.NewUdpServer(sip, sport)
+	clientServer.OnRecv = onRecv
+	err := clientServer.Start()
+
+	if err != nil {
+		fmt.Println("Server start error:" + err.Error())
+	}
+	fmt.Println("start client server success")
+
+	transServer = gtnet.NewUdpServer(sip, sport-1)
+	transServer.OnRecv = onTransRecv
+	err = transServer.Start()
+
+	if err != nil {
+		fmt.Println("Server start error:" + err.Error())
+	}
+	fmt.Println("start trans server success")
 }

@@ -3,6 +3,7 @@ package gtnet
 import (
 	"fmt"
 	"net"
+	"runtime"
 )
 
 type GTUDPPacket struct {
@@ -42,8 +43,8 @@ func (g *GTUdpServer) Start() error {
 		return err
 	}
 
-	startUDPRecv()
-	startUDPSend()
+	g.startUDPRecv()
+	g.startUDPSend()
 
 	if g.OnStart != nil {
 		g.OnStart()
@@ -109,7 +110,7 @@ func (g *GTUdpServer) startUDPSend() {
 					g.OnPreSend(packet)
 				}
 
-				num, err := g.conn.Send(packet.buff, packet.raddr)
+				num, err := g.conn.Send(packet.Buff, packet.Raddr)
 				if err != nil {
 					fmt.Println("err Send:" + err.Error())
 					if g.OnError != nil {
