@@ -1,6 +1,7 @@
 package gtprotocol
 
 import (
+	"bytes"
 	"reflect"
 	"unsafe"
 	"utils"
@@ -25,6 +26,19 @@ type RetLoginProtocol struct {
 type DataTransProtocol struct {
 	Protocol
 	Data []byte
+}
+
+func GetRoomName(buff []byte) string {
+	strbuff := buff[8:40]
+	index := bytes.IndexByte(strbuff, 0)
+	return string(strbuff[0:index])
+}
+
+func GetMsgType(buff []byte) int {
+	var msgtype int16
+	utils.BytesToNum(buff[4:8], &msgtype)
+
+	return int(msgtype)
 }
 
 func (p *Protocol) Parse(buff []byte) error {
